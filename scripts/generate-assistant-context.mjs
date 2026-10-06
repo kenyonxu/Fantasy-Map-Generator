@@ -5,7 +5,7 @@
 
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const target = "src/services/assistant/provider/context.generated.ts";
@@ -147,16 +147,20 @@ function buildGeneratedContext() {
   return `${header}\n${body}\n`;
 }
 
-const generated = buildGeneratedContext();
+// only build and write when executed directly; importing (tests) must stay side-effect free
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  const generated = buildGeneratedContext();
 
-if (process.argv.includes("--check")) {
-  const committed = read(target);
-  if (committed !== generated) {
-    console.error(`${target} is stale. Run: npm run generate:assistant-context`);
-    process.exit(1);
+  if (process.argv.includes("--check")) {
+    const committed = read(target);
+    if (committed !== generated) {
+      console.error(`${target} is stale. Run: npm run generate:assistant-context`);
+      process.exit(1);
+    }
+    console.log(`${target} is up to date`);
+  } else {
+    writeFileSync(join(root, target), generated);
+    console.log(`Wrote ${target} (${generated.length} chars)`);
   }
-  console.log(`${target} is up to date`);
-} else {
-  writeFileSync(join(root, target), generated);
-  console.log(`Wrote ${target} (${generated.length} chars)`);
 }
