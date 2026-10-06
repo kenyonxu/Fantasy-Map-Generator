@@ -334,6 +334,11 @@ const saveScreenshot = async () => {
 
 const saveOBJ = async () => {
   const objexporter = await OBJExporter();
+  if (!objexporter) {
+    console.warn("OBJ exporter failed to load");
+    window.tip("Cannot export OBJ: module failed to load", true, "error");
+    return;
+  }
   const obj = await objexporter.parse(mesh);
 
   downloadFile(obj, `${getFileName()}.obj`, "text/plain;charset=UTF-8");
@@ -613,7 +618,7 @@ function deleteLabels() {
   lines = [];
 }
 
-async function createMeshTextureUrl(): Promise<string> {
+async function createMeshTextureUrl(): Promise<string | null> {
   const url = await Services.ExportMap.getMapURL("mesh", {
     noLabels: options.app.threeD.labels3d,
     noWater: options.app.threeD.extendedWater,
@@ -632,7 +637,8 @@ async function createMeshTextureUrl(): Promise<string> {
     img.onload = () => {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       canvas.toBlob(blob => {
-        const blobObj = window.URL.createObjectURL(blob!);
+        if (!blob) return resolve(null);
+        const blobObj = window.URL.createObjectURL(blob);
         window.setTimeout(() => {
           canvas.remove();
           window.URL.revokeObjectURL(blobObj);
@@ -640,6 +646,7 @@ async function createMeshTextureUrl(): Promise<string> {
         resolve(blobObj);
       });
     };
+    img.onerror = () => resolve(null);
   });
 }
 
@@ -647,13 +654,17 @@ async function createMeshTextureUrl(): Promise<string> {
 async function loadMapTexture() {
   if (!Renderer) return null;
   if (texture) texture.dispose();
+  texture = null;
   const url = await createMeshTextureUrl();
-  await new Promise(resolve => {
-    texture = new Three.TextureLoader().load(
+  if (!url) {
+    console.warn("3D map texture rasterization failed, rendering untextured mesh");
+    window.tip("3D texture failed to render; try a smaller map resolution", false, "error", 4000);
+    return null;
+  }
+  texture = await new Promise<THREE.Texture | null>(resolve => {
+    new Three.TextureLoader().load(
       url,
-      (t: THREE.Texture) => {
-        resolve(t);
-      },
+      (t: THREE.Texture) => resolve(t),
       undefined,
       () => resolve(null)
     );
@@ -758,16 +769,22 @@ async function createMesh(width: number, height: number, segmentsX: number, segm
     geometry.setAttribute("position", vertices);
     geometry.computeVertexNormals();
     if (options.app.threeD.subdivide) {
-      await loadLoopSubdivision();
-      const subdivideParams = {
-        split: true,
-        uvSmooth: false,
-        preserveEdges: true,
-        flatOnly: false,
-        maxTriangles: Infinity
-      };
-      const smoothGeometry = (window as any).loopSubdivision.modify(geometry, 1, subdivideParams);
-      mesh = new Three.Mesh(smoothGeometry, material);
+      const subdividerLoaded = await loadLoopSubdivision();
+      if (!subdividerLoaded || !(window as any).loopSubdivision) {
+        console.warn("Loop subdivision failed to load, falling back to unsubdivided mesh");
+        window.tip("Subdivision failed to load; using standard mesh", false, "warn", 4000);
+        mesh = new Three.Mesh(geometry, material);
+      } else {
+        const subdivideParams = {
+          split: true,
+          uvSmooth: false,
+          preserveEdges: true,
+          flatOnly: false,
+          maxTriangles: Infinity
+        };
+        const smoothGeometry = (window as any).loopSubdivision.modify(geometry, 1, subdivideParams);
+        mesh = new Three.Mesh(smoothGeometry, material);
+      }
     } else {
       mesh = new Three.Mesh(geometry, material);
     }
@@ -863,7 +880,15 @@ async function update3dTexture() {
   }
 
   if (texture) texture.dispose();
+  texture = null;
   const url = await createMeshTextureUrl();
+  if (!url) {
+    console.warn("3D map texture rasterization failed, rendering untextured mesh");
+    window.tip("3D texture failed to render; try a smaller map resolution", false, "error", 4000);
+    material.map = null;
+    render();
+    return;
+  }
   window.setTimeout(() => window.URL.revokeObjectURL(url), 4000);
   texture = new Three.TextureLoader().load(url, render);
   material.map = texture;
@@ -985,6 +1010,11 @@ async function updateGlobeTexure(addMesh?: boolean) {
     if (texture) texture.dispose();
     texture = new Three.CanvasTexture(ctx.canvas);
     material.map = texture;
+    if (addMesh) addGlobe3dMesh();
+  };
+  img2.onerror = () => {
+    console.warn("3D globe texture failed to load, keeping previous view");
+    window.tip("Globe texture failed to load; try a smaller map resolution", false, "error", 4000);
     if (addMesh) addGlobe3dMesh();
   };
   img2.src = await Services.ExportMap.getMapURL("mesh", { noScaleBar: true, fullMap: true, noVignette: true });
