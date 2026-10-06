@@ -39,3 +39,16 @@ it("adopts an existing key from the previous Assistant settings", () => {
   clear();
   expect(isConnected()).toBe(false);
 });
+
+it("clears every provider's key, not just the active one", () => {
+  save({ provider: "anthropic", model: "claude-sonnet-5-5", key: "anthropic-key", localUrl: "" });
+  localStorage.setItem("fmg-ai-kl-openai", "openai-key");
+  localStorage.setItem("fmg-ai-kl-mistral", "mistral-key");
+  localStorage.setItem("fmg-ai-kl-local", "stale-local-key");
+  clear();
+  expect(localStorage.getItem("fmg-ai-kl-anthropic")).toBeNull();
+  expect(localStorage.getItem("fmg-ai-kl-openai")).toBeNull();
+  expect(localStorage.getItem("fmg-ai-kl-mistral")).toBeNull();
+  expect(localStorage.getItem("fmg-ai-kl-local")).toBeNull();
+  expect(isConnected()).toBe(false);
+});

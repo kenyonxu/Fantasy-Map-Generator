@@ -1,4 +1,4 @@
-import { DEFAULT_PROVIDER, keyStorageForProvider, type ProviderSpec, providerById } from "./providers";
+import { DEFAULT_PROVIDER, keyStorageForProvider, PROVIDERS, type ProviderSpec, providerById } from "./providers";
 
 export interface Connection {
   provider: ProviderSpec["id"];
@@ -33,7 +33,8 @@ export function save({ provider, model, key, localUrl }: Connection): void {
 }
 
 export function clear(): void {
-  localStorage.removeItem(keyStorageForProvider(get().provider));
+  // every provider's key, not just the active one: disconnecting must leave none behind
+  for (const provider of PROVIDERS) localStorage.removeItem(keyStorageForProvider(provider.id));
   localStorage.setItem(CONNECTED_STORAGE, "0");
 }
 

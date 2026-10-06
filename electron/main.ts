@@ -12,7 +12,7 @@ const HOST = "fmg";
 const APP_URL = `${SCHEME}://${HOST}/index.html`;
 const RENDERER_DIR = path.join(__dirname, "renderer");
 const ICON_PATH = path.join(__dirname, "icon.png");
-const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
+const DEV_SERVER_URL = app.isPackaged ? undefined : process.env.VITE_DEV_SERVER_URL; // a packaged app never loads the dev server
 const WIKI_URL = "https://github.com/Azgaar/Fantasy-Map-Generator/wiki";
 const DISCORD_URL = "https://discord.gg/X7E84HU";
 

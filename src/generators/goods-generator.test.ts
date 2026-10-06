@@ -102,4 +102,30 @@ describe("GoodsModule", () => {
     expect(goodIds.some(id => id === 1)).toBe(false);
     expect(goodIds.filter(id => id === 2)).toHaveLength(2);
   });
+
+  describe("placement compiles distribution once per good", () => {
+    it("compiles each distribution once per generate, not once per cell", () => {
+      const cellCount = 60;
+      globalThis.pack.cells.i = Array.from({ length: cellCount }, (_, cellId) => cellId);
+      globalThis.pack.cells.biome = Uint8Array.from({ length: cellCount }, () => 0);
+
+      const OriginalFunction = globalThis.Function;
+      let compiled = 0;
+      globalThis.Function = new Proxy(OriginalFunction, {
+        construct: (target, args) => {
+          compiled += 1;
+          return Reflect.construct(target, args);
+        }
+      });
+      try {
+        goodsModule.generate({ randomSeed: 42 });
+      } finally {
+        globalThis.Function = OriginalFunction;
+      }
+
+      const placed = Array.from(globalThis.pack.cells.good).filter(goodId => goodId !== 0);
+      expect(placed).toHaveLength(6); // 2 goods, each capped at ceil(200 * 60 / 5000) = 3 cells
+      expect(compiled).toBe(2); // one compile per good, not per placement
+    });
+  });
 });

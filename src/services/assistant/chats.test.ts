@@ -69,3 +69,12 @@ it("coalesces pending saves and persists the latest history", async () => {
   await vi.waitFor(() => expect(ldb.set).toHaveBeenCalledTimes(2));
   expect((storage.get("fmg-assistant-chats") as { items: unknown[] }[])[0].items).toHaveLength(20);
 });
+
+it("resets script consent when a new chat is created", async () => {
+  const chats = await import("./chats");
+  const consent = await import("./script-consent");
+  consent.giveScriptConsent();
+  expect(consent.hasScriptConsent()).toBe(true);
+  chats.create("guest", 1, "Map");
+  expect(consent.hasScriptConsent()).toBe(false);
+});

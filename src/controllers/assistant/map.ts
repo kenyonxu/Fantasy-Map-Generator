@@ -1,3 +1,4 @@
+import { confirmationDialog } from "@/components/dialog/dialog-helpers";
 import { type EntityType, MapEntities } from "@/components/map-entities";
 import { viewport } from "@/components/viewport";
 import { Controllers } from "@/controllers";
@@ -5,7 +6,8 @@ import type { ChangeRow, ChartRow, Chat, Choice, Widget } from "@/services/assis
 import type { Tool } from "@/services/assistant/provider/answerer";
 import { WIKI_PAGES } from "@/services/assistant/provider/knowledge";
 import { imageBlock, type ToolDefinition, type ToolInput } from "@/services/assistant/provider/providers";
-import { runScript } from "@/services/assistant/provider/runtime";
+import { type RunResult, runScript } from "@/services/assistant/provider/runtime";
+import { giveScriptConsent, hasScriptConsent } from "@/services/assistant/script-consent";
 import type { Region } from "@/services/io/export";
 import type { Emblem } from "@/types/emblems";
 import { rn } from "@/utils/numberUtils";
@@ -182,16 +184,56 @@ function namedKeys(text: string): string {
   return lines.length ? `\n# Keys of the names above\n${lines.join("\n")}` : "";
 }
 
+// The script is model-authored and runs with the page's full permissions, so each session asks once
+async function scriptConsent(): Promise<boolean> {
+  if (hasScriptConsent()) return true;
+  const ok = await new Promise<boolean>(resolve => {
+    let settled = false;
+    const settle = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    confirmationDialog({
+      title: "Run AI-generated script?",
+      message:
+        "The Assistant wants to run a script on this page. The script has the page's full permissions: it is not sandboxed or read-only, and it can read anything the page can, including stored API keys. Continue only if this map comes from a source you trust.",
+      cancel: "Don't run",
+      confirm: "Run script",
+      onConfirm: () => settle(true),
+      onCancel: () => settle(false),
+      onClose: () => settle(false)
+    });
+  });
+  if (ok) giveScriptConsent();
+  return ok;
+}
+
 const readMap: Tool = {
   status: "Reading the map",
   definition: {
     name: "read_map",
     description:
-      "Run read-only JavaScript in the page. Return the result; describe(value) inspects a value. Scripts may call downloadFile for CSV or JSON. The result ends with the keys of map entities it names.",
+      "Run JavaScript in the page with full page permissions. The user is prompted for consent once per session. Return the result; describe(value) inspects a value. Scripts may call downloadFile for CSV or JSON. The result ends with the keys of map entities it names.",
     input_schema: { type: "object", properties: { code: { type: "string" } }, required: ["code"] }
   },
   async handle(input) {
     const code = typeof input.code === "string" ? input.code : "";
+    if (!(await scriptConsent())) {
+      const result: RunResult = {
+        ok: false,
+        value: "",
+        logs: [],
+        error: { message: "Script execution declined", stack: "" },
+        ms: 0
+      };
+      return {
+        content:
+          "The user declined to run this script. Do not send another one in this reply; answer from what you already know.",
+        item: { kind: "step", code, result },
+        isError: true
+      };
+    }
     const result = await runScript(code, { units: UNITS });
     if (!result.ok)
       return { content: result.error?.message || "Script failed", item: { kind: "step", code, result }, isError: true };

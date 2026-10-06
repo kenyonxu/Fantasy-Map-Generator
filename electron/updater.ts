@@ -13,7 +13,7 @@ let reportErrors = false;
 function ask(options: MessageBoxOptions): Promise<number> {
   const window = BrowserWindow.getAllWindows().find(candidate => !candidate.isDestroyed());
   const result = window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
-  return result.then(({ response }) => response);
+  return result.then(({ response }) => response).catch(() => -1); // -1: cancelled or the window was destroyed mid-dialog
 }
 
 function onError(error: Error): void {
