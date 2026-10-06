@@ -1,5 +1,8 @@
+import Alea from "alea";
 import { quadtree } from "d3";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// @ts-expect-error vendored UMD script without TypeScript declarations
+import FlatQueue from "../../public/libs/flatqueue.js";
 import { Cultures } from "./cultures-generator";
 
 afterEach(() => {
@@ -51,5 +54,122 @@ describe("locked culture centers register in the spacing quadtree", () => {
     if (locked.center !== undefined) centers.add(cells.p[locked.center]);
 
     expect(centers.find(100, 200, 15)).toEqual([100, 200]); // within spacing → found
+  });
+});
+
+describe("Cultures.expand golden", () => {
+  beforeEach(() => {
+    (globalThis as any).FlatQueue = FlatQueue;
+    options = Options.getDefaultOptions();
+    options.generation.cultures.growthRate = 50; // small map: lift maxExpansionCost above per-cell costs
+  });
+
+  it("floods two contesting cultures to a fixed split of a 12-cell line", () => {
+    const n = 12;
+    const cells = {
+      i: Array.from({ length: n }, (_, i) => i),
+      c: Array.from({ length: n }, (_, i) => [i - 1, i + 1].filter(x => x >= 0 && x < n)),
+      p: Array.from({ length: n }, (_, i) => [i * 10, 0] as [number, number]),
+      culture: new Uint16Array(n),
+      biome: Uint8Array.from([1, 1, 1, 1, 1, 1, 4, 4, 4, 4, 4, 4]),
+      h: Array.from({ length: n }, (_, i) => (i === 6 ? 70 : 35)),
+      r: Array.from({ length: n }, (_, i) => (i === 9 ? 1 : 0)),
+      fl: Array.from({ length: n }, (_, i) => (i === 9 ? 150 : 0)),
+      t: Array.from({ length: n }, (_, i) => (i === 0 || i === 11 ? 1 : -1)),
+      pop: Array.from({ length: n }, (_, i) => (i === 7 ? 0 : 5)),
+      area: new Array(n).fill(5),
+      f: new Array(n).fill(0)
+    };
+    vi.stubGlobal("pack", {
+      cells,
+      cultures: [
+        { i: 0, name: "Wildlands", type: "Generic" },
+        { i: 1, name: "Plain folk", center: 0, type: "Generic", expansionism: 2 },
+        { i: 2, name: "Forest hunters", center: 11, type: "Hunting", expansionism: 1 }
+      ],
+      biomes: [
+        { i: 0, cost: 0 },
+        { i: 1, cost: 10 },
+        { i: 2, cost: 0 },
+        { i: 3, cost: 0 },
+        { i: 4, cost: 60 }
+      ],
+      features: [{ i: 0, type: "ocean", cells: 0 }]
+    } as any);
+    vi.spyOn(Math, "random").mockImplementation(Alea("cultures-expand-golden"));
+
+    Cultures.expand();
+
+    // golden from the converged priorityFlood: the faster plain culture crosses the mountain
+    // (195 < 330 accumulated cost) and claims up to cell 8, except unpopulated cell 7; the
+    // flood semantics changed vs the legacy copies only for the zero-cost churn case (flood.test.ts)
+    expect([...pack.cells.culture]).toEqual([1, 1, 1, 1, 1, 1, 1, 0, 2, 2, 2, 2]);
+  });
+});
+
+describe("Cultures.regenerate with a locked culture", () => {
+  beforeEach(() => {
+    (globalThis as any).FlatQueue = FlatQueue;
+    options = Options.getDefaultOptions();
+    options.generation.cultures = { ...options.generation.cultures, limit: 2, set: "english" };
+    options.map.graph.width = 200;
+    options.map.graph.height = 100; // initial center spacing = (200 + 100) / 2 / 2 = 75
+    vi.stubGlobal("grid", { cells: { temp: [] } });
+    vi.stubGlobal("Names", { nameBases: new Array(10).fill({}), getBase: () => "Test" } as any);
+  });
+
+  it("spaces the regenerated center away from the locked center and keeps the locked cell", () => {
+    const n = 60;
+    const score = (i: number) => (i === 29 || i === 30 ? 100 : i === 9 || i === 11 ? 99 : i >= 31 ? 50 : 1);
+    const cells = {
+      i: Array.from({ length: n }, (_, i) => i),
+      c: Array.from({ length: n }, (_, i) => [i - 1, i + 1].filter(x => x >= 0 && x < n)),
+      p: Array.from({ length: n }, (_, i) => [i * 20, 0] as [number, number]),
+      culture: (() => {
+        const ids = new Uint16Array(n);
+        ids[10] = 5; // the locked culture owns only its center cell
+        return ids;
+      })(),
+      biome: new Uint8Array(n).fill(5),
+      h: new Array(n).fill(35),
+      r: new Array(n).fill(0),
+      fl: new Array(n).fill(0),
+      t: new Array(n).fill(-1),
+      s: Array.from({ length: n }, (_, i) => score(i)),
+      pop: new Array(n).fill(5),
+      area: new Array(n).fill(5),
+      f: new Array(n).fill(0),
+      haven: new Array(n).fill(0),
+      harbor: new Array(n).fill(0)
+    };
+    const packStub = {
+      cells,
+      cultures: [
+        { i: 0, name: "Wildlands" },
+        { i: 5, name: "Locked", code: "LK", center: 10, lock: true, base: 3, type: "Generic" }
+      ],
+      biomes: [{ i: 5, cost: 50 }],
+      features: [{ i: 0, type: "ocean", cells: 0 }],
+      states: [{ i: 0 }],
+      burgs: [0],
+      religions: [{ i: 0 }]
+    } as any;
+    vi.stubGlobal("pack", packStub);
+    // draw plan under Alea("lock-5"): rand pick, 2 shuffle draws, then placeCenter's biased
+    // pick 1 lands on sorted[2] (cell 9, 20 off the locked center) and pick 2 on sorted[0] (cell 29)
+    vi.spyOn(Math, "random").mockImplementation(Alea("lock-5"));
+
+    Cultures.regenerate();
+
+    const locked = packStub.cultures.find((culture: { lock?: boolean }) => culture.lock);
+    expect(locked).toMatchObject({ i: 1, center: 10 });
+    const regenerated = packStub.cultures.find((culture: { i: number }) => culture.i === 2);
+    expect(regenerated).toBeDefined();
+    const [lockedX] = cells.p[10];
+    const [regeneratedX] = cells.p[regenerated!.center];
+    // the spacing quadtree received the locked center, so the near pick is rejected (cultures-generator.ts:1175)
+    expect(Math.abs(regeneratedX - lockedX)).toBeGreaterThanOrEqual(300);
+    // the flood never overwrites a locked culture's cell
+    expect(packStub.cells.culture[10]).toBe(1);
   });
 });

@@ -463,3 +463,89 @@ describe("ReligionsModule.getPassageCost", () => {
     expect(Religions.getPassageCost(from, to, routeById)).toBe(expectedCost(from, to));
   });
 });
+
+describe("Religions.recalculate golden", () => {
+  beforeAll(async () => {
+    await import("./religions-generator");
+    // @ts-expect-error vendored UMD script without TypeScript declarations
+    (globalThis as any).FlatQueue = (await import("../../public/libs/flatqueue.js")).default;
+  });
+
+  it("floods organized religions, the cult and the heresy to a fixed split of a 20-cell line", () => {
+    const n = 20;
+    globalThis.pack = {
+      cells: {
+        i: Array.from({ length: n }, (_, i) => i),
+        c: Array.from({ length: n }, (_, i) => [i - 1, i + 1].filter(x => x >= 0 && x < n)),
+        culture: Uint16Array.from(Array.from({ length: n }, (_, i) => (i < 14 ? 1 : 2))),
+        state: Uint16Array.from(Array.from({ length: n }, (_, i) => (i < 14 ? 0 : 1))),
+        religion: new Uint16Array(n),
+        biome: new Uint8Array(n).fill(1),
+        h: new Array(n).fill(35),
+        routes: Array.from({ length: n }, () => ({}))
+      },
+      biomes: [
+        { i: 0, cost: 0 },
+        { i: 1, cost: 10 }
+      ],
+      routes: [],
+      cultures: [
+        { i: 0, name: "Wildlands" },
+        { i: 1, name: "Westerners", center: 1, color: "#111111" },
+        { i: 2, name: "Easterners", center: 18, color: "#222222" }
+      ],
+      religions: [
+        { i: 0, name: "No religion" },
+        { i: 1, name: "Western folk", type: "Folk", culture: 1, center: 0, expansion: "culture" },
+        { i: 2, name: "Eastern folk", type: "Folk", culture: 2, center: 19, expansion: "culture" },
+        {
+          i: 3,
+          name: "Western church",
+          type: "Organized",
+          culture: 1,
+          center: 1,
+          expansion: "culture",
+          expansionism: 5,
+          form: "Polytheism",
+          deity: "The West",
+          color: "#333333"
+        },
+        {
+          i: 4,
+          name: "Eastern cult",
+          type: "Cult",
+          culture: 2,
+          center: 18,
+          expansion: "state",
+          expansionism: 2,
+          form: "Cult",
+          deity: "The East",
+          color: "#444444"
+        },
+        {
+          i: 5,
+          name: "Western heresy",
+          type: "Heresy",
+          culture: 1,
+          center: 2,
+          expansion: "global",
+          expansionism: 1,
+          form: "Polytheism",
+          deity: "The West",
+          color: "#555555",
+          origins: [3]
+        }
+      ]
+    } as any;
+    options = Options.getDefaultOptions();
+    options.generation.cultures.growthRate = 175; // maxExpansionCost = (20 / 20) * 175 = 175
+
+    const Religions = globalThis.Religions;
+    Religions.recalculate();
+
+    // golden from the converged priorityFlood: the church spans its culture (12/step), the cult its
+    // state (15/step), then the heresy overruns the church's west (20/step) and stops past cell 10
+    // (160 <= 175 < 180); the flood semantics changed vs the legacy copies only for zero-cost churn (flood.test.ts)
+    expect([...globalThis.pack.cells.religion]).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3, 3, 3, 4, 4, 4, 4, 4, 4]);
+  });
+});
