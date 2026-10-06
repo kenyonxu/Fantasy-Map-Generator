@@ -174,12 +174,9 @@ async function uncompress(compressedData: ArrayBuffer): Promise<Uint8Array | nul
   try {
     const uncompressedStream = new Blob([compressedData]).stream().pipeThrough(new DecompressionStream("gzip"));
 
-    let uncompressedData: number[] = [];
-    for await (const chunk of uncompressedStream) {
-      uncompressedData = uncompressedData.concat(Array.from(chunk));
-    }
-
-    return new Uint8Array(uncompressedData);
+    const parts: Uint8Array[] = [];
+    for await (const chunk of uncompressedStream) parts.push(chunk);
+    return new Uint8Array(await new Blob(parts as BlobPart[]).arrayBuffer());
   } catch (error) {
     ERROR && console.error(error);
     return null;
@@ -727,5 +724,6 @@ export const Load = {
   loadMapFromURL,
   showUploadErrorMessage,
   uploadMap,
-  repairInvalidCultures
+  repairInvalidCultures,
+  uncompress
 };
