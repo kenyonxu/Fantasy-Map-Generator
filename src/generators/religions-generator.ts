@@ -14,6 +14,7 @@ import {
   rw,
   trimVowels
 } from "../utils";
+import { type FloodSeed, priorityFlood } from "./flood";
 import { Population } from "./population-generator";
 import type { Route } from "./routes-generator";
 
@@ -1029,49 +1030,44 @@ class ReligionsModule {
     const { cells } = pack;
     const religionIds = this.spreadFolkReligions(religions);
 
-    const queue = new FlatQueue();
-    const cost: number[] = [];
-
     // limit cost for organized religions growth
     const maxExpansionCost = (cells.i.length / 20) * options.generation.cultures.growthRate;
 
+    const seeds: FloodSeed<{ religionId: number; state: number }>[] = [];
     religions
       .filter(r => r.i && !r.lock && r.type !== "Folk" && r.type !== "Heresy" && !r.removed)
       .forEach(r => {
         religionIds[r.center] = r.i;
-        queue.push({ e: r.center, p: 0, r: r.i, s: cells.state[r.center] }, 0);
-        cost[r.center] = 1;
+        seeds.push({ cell: r.center, ctx: { religionId: r.i, state: cells.state[r.center] } });
       });
 
     const religionsMap = new Map(religions.map(r => [r.i, r]));
     const routeById = this.routeById();
 
-    while (queue.length) {
-      const { e: cellId, p, r, s: state } = queue.pop();
-      const religion = religionsMap.get(r)!;
-      const { culture, expansion, expansionism } = religion;
+    priorityFlood<{ religionId: number; state: number }>({
+      seeds,
+      neighbors: cellId => cells.c[cellId],
+      edgeCost: (cellId, nextCell, ctx, p) => {
+        const religion = religionsMap.get(ctx.religionId)!;
+        const { culture, expansion, expansionism } = religion;
 
-      cells.c[cellId].forEach(nextCell => {
-        if (expansion === "culture" && culture !== cells.culture[nextCell]) return;
-        if (expansion === "state" && state !== cells.state[nextCell]) return;
-        if (religionsMap.get(religionIds[nextCell])?.lock) return;
+        if (expansion === "culture" && culture !== cells.culture[nextCell]) return null;
+        if (expansion === "state" && ctx.state !== cells.state[nextCell]) return null;
+        if (religionsMap.get(religionIds[nextCell])?.lock) return null;
 
         const cultureCost = culture !== cells.culture[nextCell] ? 10 : 0;
-        const stateCost = state !== cells.state[nextCell] ? 10 : 0;
+        const stateCost = ctx.state !== cells.state[nextCell] ? 10 : 0;
         const passageCost = this.getPassageCost(cellId, nextCell, routeById);
 
         const cellCost = cultureCost + stateCost + passageCost;
-        const totalCost = p + 10 + cellCost / expansionism;
-        if (totalCost > maxExpansionCost) return;
-
-        if (!cost[nextCell] || totalCost < cost[nextCell]) {
-          if (cells.culture[nextCell]) religionIds[nextCell] = r; // assign religion to cell
-          cost[nextCell] = totalCost;
-
-          queue.push({ e: nextCell, p: totalCost, r, s: state }, totalCost);
-        }
-      });
-    }
+        return p + 10 + cellCost / expansionism;
+      },
+      assign: (nextCell, ctx) => {
+        if (cells.culture[nextCell]) religionIds[nextCell] = ctx.religionId; // assign religion to cell
+      },
+      maxCost: maxExpansionCost,
+      initialCost: 1
+    });
 
     return religionIds;
   }
@@ -1080,41 +1076,37 @@ class ReligionsModule {
     if (!heresies.length) return;
 
     const { cells } = pack;
-    const queue = new FlatQueue();
-    const cost: number[] = [];
     const maxExpansionCost = (cells.i.length / 20) * options.generation.cultures.growthRate;
     const religionsMap = new Map(religions.map(religion => [religion.i, religion]));
     const routeById = this.routeById();
 
+    const seeds: FloodSeed<{ religionId: number; baseReligionId: number }>[] = [];
     for (const heresy of heresies) {
       const baseReligionId = heresy.origins?.[0];
       if (!baseReligionId || religionsMap.get(baseReligionId)?.type !== "Organized") continue;
       if (religionsMap.get(religionIds[heresy.center])?.lock) continue;
 
       religionIds[heresy.center] = heresy.i;
-      queue.push({ e: heresy.center, p: 0, r: heresy.i, b: baseReligionId }, 0);
-      cost[heresy.center] = 1;
+      seeds.push({ cell: heresy.center, ctx: { religionId: heresy.i, baseReligionId } });
     }
 
-    while (queue.length) {
-      const { e: cellId, p, r, b: baseReligionId } = queue.pop();
-      const religion = religionsMap.get(r)!;
+    priorityFlood<{ religionId: number; baseReligionId: number }>({
+      seeds,
+      neighbors: cellId => cells.c[cellId],
+      edgeCost: (cellId, nextCell, ctx, p) => {
+        const religion = religionsMap.get(ctx.religionId)!;
+        if (religionsMap.get(religionIds[nextCell])?.lock) return null;
 
-      for (const nextCell of cells.c[cellId]) {
-        if (religionsMap.get(religionIds[nextCell])?.lock) continue;
-
-        const religionCost = religionIds[nextCell] === baseReligionId ? 0 : 2000;
+        const religionCost = religionIds[nextCell] === ctx.baseReligionId ? 0 : 2000;
         const passageCost = this.getPassageCost(cellId, nextCell, routeById);
-        const totalCost = p + 10 + (religionCost + passageCost) / Math.max(religion.expansionism, 0.1);
-        if (totalCost > maxExpansionCost) continue;
-
-        if (!cost[nextCell] || totalCost < cost[nextCell]) {
-          if (cells.culture[nextCell]) religionIds[nextCell] = r;
-          cost[nextCell] = totalCost;
-          queue.push({ e: nextCell, p: totalCost, r, b: baseReligionId }, totalCost);
-        }
-      }
-    }
+        return p + 10 + (religionCost + passageCost) / Math.max(religion.expansionism, 0.1);
+      },
+      assign: (nextCell, ctx) => {
+        if (cells.culture[nextCell]) religionIds[nextCell] = ctx.religionId; // assign religion to cell
+      },
+      maxCost: maxExpansionCost,
+      initialCost: 1
+    });
   }
 
   private normalizeHeresiesForExpansion(religions: Religion[], religionIds: Uint16Array): Religion[] {
