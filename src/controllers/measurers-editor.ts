@@ -148,30 +148,38 @@ function addRuler(): void {
 }
 
 function toggleOpisometerMode(this: HTMLElement): void {
-  startDrawingMode(this, "Draw a curve to measure length. Hold Shift to disallow path optimization", (event: any) => {
-    const opisometer = Measurers.create("Opisometer", [[event.x, event.y]]);
-    redraw();
-    event.on("drag", (dragEvent: any) =>
-      addPoint(opisometer, [dragEvent.x, dragEvent.y], dragEvent.sourceEvent.shiftKey)
-    );
-    event.on("end", (endEvent: any) => finishStroke(opisometer, 2, endEvent));
-  });
+  startDrawingMode(
+    this,
+    "Draw a curve to measure length. Hold Shift to disallow path optimization",
+    (event: MeasurerDragEvent<SVGElement>) => {
+      const opisometer = Measurers.create("Opisometer", [[event.x, event.y]]);
+      redraw();
+      event.on("drag", (dragEvent: MeasurerDragEvent<SVGElement>) =>
+        addPoint(opisometer, [dragEvent.x, dragEvent.y], dragEvent.sourceEvent.shiftKey)
+      );
+      event.on("end", (endEvent: MeasurerDragEvent<SVGElement>) => finishStroke(opisometer, 2, endEvent));
+    }
+  );
 }
 
 function togglePlanimeterMode(this: HTMLElement): void {
-  startDrawingMode(this, "Draw a curve to measure its area. Hold Shift to disallow path optimization", (event: any) => {
-    const planimeter = Measurers.create("Planimeter", [[event.x, event.y]]);
-    redraw();
-    event.on("drag", (dragEvent: any) =>
-      addPoint(planimeter, [dragEvent.x, dragEvent.y], dragEvent.sourceEvent.shiftKey)
-    );
-    event.on("end", (endEvent: any) => finishStroke(planimeter, 3, endEvent));
-  });
+  startDrawingMode(
+    this,
+    "Draw a curve to measure its area. Hold Shift to disallow path optimization",
+    (event: MeasurerDragEvent<SVGElement>) => {
+      const planimeter = Measurers.create("Planimeter", [[event.x, event.y]]);
+      redraw();
+      event.on("drag", (dragEvent: MeasurerDragEvent<SVGElement>) =>
+        addPoint(planimeter, [dragEvent.x, dragEvent.y], dragEvent.sourceEvent.shiftKey)
+      );
+      event.on("end", (endEvent: MeasurerDragEvent<SVGElement>) => finishStroke(planimeter, 3, endEvent));
+    }
+  );
 }
 
 function toggleRouteOpisometerMode(this: HTMLElement): void {
   const tipText = "Draw a curve along routes to measure length. Hold Shift to measure away from roads.";
-  startDrawingMode(this, tipText, (event: any) => {
+  startDrawingMode(this, tipText, (event: MeasurerDragEvent<SVGElement>) => {
     const cell = Pack.findCell(event.x, event.y)!;
     if (!Routes.isConnected(cell) && !event.sourceEvent.shiftKey) {
       exitDrawingMode();
@@ -181,7 +189,7 @@ function toggleRouteOpisometerMode(this: HTMLElement): void {
 
     const routeOpisometer = Measurers.create("RouteOpisometer", [getCellCoord(cell)]);
     redraw();
-    event.on("drag", (dragEvent: any) => {
+    event.on("drag", (dragEvent: MeasurerDragEvent<SVGElement>) => {
       const c = Pack.findCell(dragEvent.x, dragEvent.y)!;
       if (Routes.isConnected(c) || dragEvent.sourceEvent.shiftKey) trackCell(routeOpisometer, c, true);
     });
@@ -189,7 +197,11 @@ function toggleRouteOpisometerMode(this: HTMLElement): void {
   });
 }
 
-function startDrawingMode(button: HTMLElement, tipText: string, onStart: (event: any) => void): void {
+function startDrawingMode(
+  button: HTMLElement,
+  tipText: string,
+  onStart: (event: MeasurerDragEvent<SVGElement>) => void
+): void {
   if (button.classList.contains("pressed")) {
     exitDrawingMode();
     return;
@@ -217,7 +229,7 @@ function exitPressedButtons(): void {
     });
 }
 
-function finishStroke(measurer: Measurer, minPoints: number, endEvent?: any): void {
+function finishStroke(measurer: Measurer, minPoints: number, endEvent?: MeasurerDragEvent<SVGElement>): void {
   exitDrawingMode();
   if (measurer.points.length < minPoints) {
     Measurers.remove(measurer);

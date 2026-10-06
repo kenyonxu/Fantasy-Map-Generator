@@ -706,7 +706,7 @@ function toggleRelocateBurg(): void {
   }
 }
 
-function relocateBurgOnClick(this: SVGGElement, event: any): void {
+function relocateBurgOnClick(this: SVGGElement, event: PointerEvent): void {
   const [x, y] = getPointer(event, this);
   if (!tryEdit(() => Burgs.move(getSelectedId(), x, y))) return;
   Layers.draw("burgIcons", "labels");

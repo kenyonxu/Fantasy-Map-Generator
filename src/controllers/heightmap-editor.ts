@@ -1,4 +1,5 @@
 import {
+  type D3DragEvent,
   drag,
   easeSinInOut,
   hsl,
@@ -436,7 +437,7 @@ function enterHeightmapEditMode(mode: string, tool?: string): void {
   else openBrushesPanel();
 }
 
-function moveCursor(this: SVGElement, event: any): void {
+function moveCursor(this: SVGElement, event: MouseEvent | TouchEvent): void {
   const [x, y] = getPointer(event, this);
   const cell = Grid.findCell(x, y);
   ensureEl("heightmapInfoX").innerHTML = String(rn(x));
@@ -1155,7 +1156,7 @@ function toggleBrushMode(event: Event): void {
   }
 }
 
-function placeLinearFeature(this: SVGElement, event: any): void {
+function placeLinearFeature(this: SVGElement, event: PointerEvent): void {
   const [x, y] = getPointer(event, this);
   const toCell = Grid.findCell(x, y);
 
@@ -1213,7 +1214,7 @@ function placeLinearFeature(this: SVGElement, event: any): void {
   updateHistory();
 }
 
-function applyFillBrush(this: SVGElement, event: any): void {
+function applyFillBrush(this: SVGElement, event: PointerEvent): void {
   const [x, y] = getPointer(event, this);
   const start = Grid.findCell(x, y);
   const startHeight = grid.cells.h[start];
@@ -1324,7 +1325,7 @@ function applyConeToSelection(selection: number[], isWaterFill: boolean, targetH
   return changed;
 }
 
-function dragBrush(this: SVGElement, event: any): void {
+function dragBrush(this: SVGElement, event: D3DragEvent<SVGElement, unknown, unknown>): void {
   const r = ensureEl<HTMLInputElement>("heightmapBrushRadius").valueAsNumber;
   const [startX, startY] = getPointer(event, this);
   const start = Grid.findCell(startX, startY); // fixed once per drag: Align replicates this cell's height
@@ -1344,7 +1345,7 @@ function dragBrush(this: SVGElement, event: any): void {
   const stroke = createBrushStroke(r / 2, applyAt);
   stroke.moveTo(startX, startY); // so a plain click changes height
 
-  event.on("drag", (dragEvent: any) => {
+  event.on("drag", (dragEvent: D3DragEvent<SVGElement, unknown, unknown>) => {
     const [x, y] = getPointer(dragEvent, this);
     moveCircle(x, y, r);
     stroke.moveTo(x, y);

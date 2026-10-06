@@ -829,10 +829,10 @@ function showChart(): void {
     .enter()
     .append("g")
     .attr("data-id", (d: TreeNode) => d.data.i)
-    .on("mouseenter", (event: any, d: TreeNode) => showInfo(event, d))
-    .on("mouseleave", (event: any) => hideInfo(event));
+    .on("mouseenter", (event: MouseEvent, d: TreeNode) => showInfo(event, d))
+    .on("mouseleave", (event: MouseEvent) => hideInfo(event));
 
-  function showInfo(ev: any, d: TreeNode): void {
+  function showInfo(ev: MouseEvent, d: TreeNode): void {
     select(ev.currentTarget as SVGGElement)
       .select("rect")
       .classed("selected", true);
@@ -859,7 +859,7 @@ function showChart(): void {
     provinceHighlightOn(ev);
   }
 
-  function hideInfo(ev: any): void {
+  function hideInfo(ev: MouseEvent): void {
     provinceHighlightOff(ev);
     if (!document.getElementById("provinceInfo")) return;
     ensureEl("provinceInfo").innerHTML = "&#8205;";
@@ -1026,7 +1026,7 @@ function enterAddProvinceMode(this: HTMLElement): void {
     });
 }
 
-function addProvince(this: SVGElement, event: any): void {
+function addProvince(this: SVGElement, event: PointerEvent): void {
   const [x, y] = getPointer(event, this);
   let province: number;
   try {

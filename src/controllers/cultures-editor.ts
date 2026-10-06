@@ -1,4 +1,4 @@
-import { csvParse, drag, easeSinIn, select, transition } from "d3";
+import { csvParse, type D3DragEvent, drag, easeSinIn, select, transition } from "d3";
 import {
   closeDialogs,
   confirmationDialog,
@@ -464,8 +464,8 @@ function getShapeOptions(isDiversiform: boolean, selected: string): string {
   return `<select data-tip="Emblem shape associated with culture. Click to change" class="cultureEmblems">${options}</select>`;
 }
 
-const cultureHighlightOn = debounce((event: any) => {
-  const cultureId = Number(event.id || event.target.dataset.id);
+const cultureHighlightOn = debounce((event: Event & { id?: string }) => {
+  const cultureId = Number(event.id || (event.target as HTMLElement).dataset.id);
 
   if (!Layers.isOn("cultures")) return;
   if (customization) return;
@@ -485,8 +485,8 @@ const cultureHighlightOn = debounce((event: any) => {
     .attr("stroke", "#d0240f");
 }, 200);
 
-function cultureHighlightOff(event: any): void {
-  const cultureId = Number(event.id || event.target.dataset.id);
+function cultureHighlightOff(event: Event & { id?: string }): void {
+  const cultureId = Number(event.id || (event.target as HTMLElement).dataset.id);
 
   if (!Layers.isOn("cultures")) return;
   select("#cults").select(`#culture${cultureId}`).transition().attr("stroke-width", null).attr("stroke", null);
@@ -708,12 +708,12 @@ function drawCultureCenters(): void {
     .attr("fill", (d: any) => d.color)
     .attr("cx", (d: any) => pack.cells.p[d.center][0])
     .attr("cy", (d: any) => pack.cells.p[d.center][1])
-    .on("mouseenter", (event: any, d: any) => {
+    .on("mouseenter", (event: MouseEvent, d: any) => {
       tip(tooltip, true);
       ensureEl("culturesBody").querySelector(`div[data-id='${d.i}']`)?.classList.add("selected");
       cultureHighlightOn(event);
     })
-    .on("mouseleave", (event: any, d: any) => {
+    .on("mouseleave", (event: MouseEvent, d: any) => {
       tip("", true);
       ensureEl("culturesBody").querySelector(`div[data-id='${d.i}']`)?.classList.remove("selected");
       cultureHighlightOff(event);
@@ -721,13 +721,13 @@ function drawCultureCenters(): void {
     .call(drag<SVGCircleElement, any>().on("start", cultureCenterDrag));
 }
 
-function cultureCenterDrag(this: any, event: any): void {
+function cultureCenterDrag(this: SVGCircleElement, event: D3DragEvent<SVGCircleElement, unknown, unknown>): void {
   const cultureId = +this.id.slice(13);
-  const tr = parseTransform(this.getAttribute("transform"));
+  const tr = parseTransform(this.getAttribute("transform") ?? "");
   const x0 = +tr[0] - event.x;
   const y0 = +tr[1] - event.y;
 
-  function handleDrag(this: any, dragEvent: any) {
+  function handleDrag(this: SVGCircleElement, dragEvent: D3DragEvent<SVGCircleElement, unknown, unknown>) {
     const { x, y } = dragEvent;
     this.setAttribute("transform", `translate(${x0 + x},${y0 + y})`);
     const cell = Pack.findCell(x, y);

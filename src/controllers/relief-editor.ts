@@ -1,4 +1,4 @@
-import { drag, quadtree, range, select } from "d3";
+import { type D3DragEvent, drag, quadtree, range, select } from "d3";
 import { closeDialogs, destroyDialog } from "@/components/dialog/dialog-helpers";
 import { Icons } from "@/components/icons";
 import { Layers } from "@/components/layers";
@@ -144,14 +144,14 @@ function renderDialog(): void {
   ensureEl("reliefRemove").addEventListener("click", removeIcon);
 }
 
-function dragReliefIcon(event: any): void {
+function dragReliefIcon(event: D3DragEvent<SVGGElement, unknown, unknown>): void {
   const icon = getIconData(event.sourceEvent?.target);
   if (!icon) return;
 
   const dx = icon.x - event.x;
   const dy = icon.y - event.y;
 
-  event.on("drag", (dragEvent: any) => {
+  event.on("drag", (dragEvent: D3DragEvent<SVGGElement, unknown, unknown>) => {
     icon.x = rn(dx + dragEvent.x, 2);
     icon.y = rn(dy + dragEvent.y, 2);
     redrawRelief();
@@ -228,14 +228,14 @@ function enterBulkAddMode(): void {
   tip("Drag to place relief icons within radius", true);
 }
 
-function moveBrush(this: SVGElement, event: any): void {
+function moveBrush(this: SVGElement, event: MouseEvent | TouchEvent): void {
   showMainTip();
   const point = getPointer(event, this);
   const radius = +ensureEl<HTMLInputElement>("reliefRadiusNumber").value;
   moveCircle(point[0], point[1], radius);
 }
 
-function dragToAdd(this: SVGElement, event: any): void {
+function dragToAdd(this: SVGElement, event: D3DragEvent<SVGElement, unknown, unknown>): void {
   const pressed = ensureEl("reliefIconsDiv").querySelector<SVGElement>("svg.pressed");
   const icon = pressed && pickedRef(pressed);
   if (!icon) {
@@ -267,7 +267,7 @@ function dragToAdd(this: SVGElement, event: any): void {
   const [startX, startY] = getPointer(event, this);
   let started = false;
 
-  event.on("drag", function (this: SVGElement, dragEvent: any) {
+  event.on("drag", function (this: SVGElement, dragEvent: D3DragEvent<SVGElement, unknown, unknown>) {
     const [x, y] = getPointer(dragEvent, this);
     moveCircle(x, y, r);
 
@@ -297,7 +297,7 @@ function enterBulkRemoveMode(): void {
   tip("Drag to remove relief icons in radius", true);
 }
 
-function dragToRemove(this: SVGElement, event: any): void {
+function dragToRemove(this: SVGElement, event: D3DragEvent<SVGElement, unknown, unknown>): void {
   const pressed = ensureEl("reliefIconsDiv").querySelector<SVGElement>("svg.pressed");
   if (!pressed) {
     tip("Please select an icon", false, "error");
@@ -325,7 +325,7 @@ function dragToRemove(this: SVGElement, event: any): void {
   const [startX, startY] = getPointer(event, this);
   let started = false;
 
-  event.on("drag", function (this: SVGElement, dragEvent: any) {
+  event.on("drag", function (this: SVGElement, dragEvent: D3DragEvent<SVGElement, unknown, unknown>) {
     const [x, y] = getPointer(dragEvent, this);
     moveCircle(x, y, r);
 

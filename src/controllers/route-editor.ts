@@ -1,4 +1,4 @@
-import { drag, type Selection, select } from "d3";
+import { type D3DragEvent, drag, type Selection, select } from "d3";
 import { closeDialogs, confirmationDialog, destroyDialog, noteButton } from "@/components/dialog/dialog-helpers";
 import { Layers } from "@/components/layers";
 import { clearMainTip, tip } from "@/components/tooltips";
@@ -152,12 +152,12 @@ function drawCells(points: number[][]): void {
     .attr("points", (p: number[]) => String(Pack.getPolygon(p[2])));
 }
 
-function dragControlPoint(event: any): void {
+function dragControlPoint(event: D3DragEvent<SVGCircleElement, unknown, number[]>): void {
   const route = getRoute();
   const initCell = event.subject[2];
   const pointIndex = route.points.indexOf(event.subject);
 
-  event.on("drag", function (this: any, dragEvent: any) {
+  event.on("drag", function (this: any, dragEvent: D3DragEvent<SVGCircleElement, unknown, number[]>) {
     this.setAttribute("cx", dragEvent.x);
     this.setAttribute("cy", dragEvent.y);
 
@@ -196,7 +196,7 @@ function redrawRoute(route: Route): void {
   Layers.draw("labels");
 }
 
-function addControlPoint(this: any, event: any): void {
+function addControlPoint(this: SVGElement, event: PointerEvent): void {
   const route = getRoute();
   const [x, y] = getPointer(event, this);
   const cellId = Pack.findCell(x, y);
