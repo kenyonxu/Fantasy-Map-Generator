@@ -590,7 +590,6 @@ function showBurgsChart(): void {
 
   function hideInfo(ev: any): void {
     burgHighlightOff();
-    if (!ensureEl("burgsInfo")) return;
     ensureEl("burgsInfo").innerHTML = "&#8205;";
     select(ev.target).transition().attr("stroke", null);
     tip("");

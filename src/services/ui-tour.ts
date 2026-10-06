@@ -1,13 +1,13 @@
 import { driver } from "driver.js";
 import { closeDialogs } from "@/components/dialog/dialog-helpers";
-import { ensureEl } from "@/utils/nodeUtils";
+import { ensureEl, findEl } from "@/utils/nodeUtils";
 import "driver.js/dist/driver.css";
 import { showExportPane } from "@/components/options/io-panes";
 
 function closeOptionsPanel() {
   const options = ensureEl("options");
-  if (options && options.style.display !== "none") {
-    ensureEl("optionsHide")?.click();
+  if (options.style.display !== "none") {
+    findEl("optionsHide")?.click();
   }
 }
 
@@ -109,7 +109,7 @@ function start() {
       {
         element: "#layersTab",
         onHighlightStarted: () => {
-          ensureEl("layersTab")?.click();
+          findEl("layersTab")?.click();
         },
         popover: {
           title: "Layers Tab",
@@ -120,7 +120,7 @@ function start() {
       {
         element: "#layersPreset",
         onHighlightStarted: () => {
-          ensureEl("layersTab")?.click();
+          findEl("layersTab")?.click();
         },
         popover: {
           title: "Layer Presets",
@@ -132,7 +132,7 @@ function start() {
       {
         element: "#mapLayers",
         onHighlightStarted: () => {
-          ensureEl("layersTab")?.click();
+          findEl("layersTab")?.click();
         },
         popover: {
           title: "Toggle Individual Layers",
@@ -146,7 +146,7 @@ function start() {
       {
         element: "#styleTab",
         onHighlightStarted: () => {
-          ensureEl("styleTab")?.click();
+          findEl("styleTab")?.click();
         },
         popover: {
           title: "Style Tab",
@@ -158,7 +158,7 @@ function start() {
       {
         element: "#stylePreset",
         onHighlightStarted: () => {
-          ensureEl("styleTab")?.click();
+          findEl("styleTab")?.click();
         },
         popover: {
           title: "Style Presets",
@@ -170,7 +170,7 @@ function start() {
       {
         element: "#styleElementSelect",
         onHighlightStarted: () => {
-          ensureEl("styleTab")?.click();
+          findEl("styleTab")?.click();
         },
         popover: {
           title: "Individual Style Settings",
@@ -184,7 +184,7 @@ function start() {
       {
         element: "#optionsTab",
         onHighlightStarted: () => {
-          ensureEl("optionsTab")?.click();
+          findEl("optionsTab")?.click();
         },
         popover: {
           title: "Options Tab",
@@ -196,7 +196,7 @@ function start() {
       {
         element: "#optionsContent",
         onHighlightStarted: () => {
-          ensureEl("optionsTab")?.click();
+          findEl("optionsTab")?.click();
         },
         popover: {
           title: "Generation Options",
@@ -209,7 +209,7 @@ function start() {
         element: "#configureWorld",
         onHighlightStarted: () => {
           closeDialogs();
-          ensureEl("optionsTab")?.click();
+          findEl("optionsTab")?.click();
         },
         popover: {
           title: "Configure World",
@@ -234,7 +234,7 @@ function start() {
           side: "right",
           onNextClick: () => {
             closeDialogs();
-            ensureEl("toolsTab")?.click();
+            findEl("toolsTab")?.click();
             advanceTour(tour);
           }
         }
@@ -244,7 +244,7 @@ function start() {
       {
         element: "#toolsTab",
         onHighlightStarted: () => {
-          ensureEl("toolsTab")?.click();
+          findEl("toolsTab")?.click();
         },
         popover: {
           title: "Tools Tab",
@@ -256,7 +256,7 @@ function start() {
       {
         element: "#editHeightmapButton",
         onHighlightStarted: () => {
-          ensureEl("toolsTab")?.click();
+          findEl("toolsTab")?.click();
         },
         popover: {
           title: "Edit the Heightmap",
@@ -292,7 +292,7 @@ function start() {
       {
         element: "#aboutTab",
         onHighlightStarted: () => {
-          ensureEl("aboutTab")?.click();
+          findEl("aboutTab")?.click();
         },
         popover: {
           title: "About Tab",
@@ -304,7 +304,7 @@ function start() {
       {
         element: "#aboutContent",
         onHighlightStarted: () => {
-          ensureEl("aboutTab")?.click();
+          findEl("aboutTab")?.click();
         },
         popover: {
           title: "About & Resources",
