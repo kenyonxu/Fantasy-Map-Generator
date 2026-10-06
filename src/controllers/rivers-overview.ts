@@ -291,13 +291,13 @@ function triggerRiverRemove(this: HTMLElement): void {
     width: "22em",
     title: "Remove river",
     buttons: {
-      Remove: function (this: any) {
+      Remove: function (this: HTMLElement) {
         Rivers.remove(river);
         Layers.draw("rivers", "labels");
         riversTable.refresh();
         $(this).dialog("close");
       },
-      Cancel: function (this: any) {
+      Cancel: function (this: HTMLElement) {
         $(this).dialog("close");
       }
     }
@@ -310,11 +310,11 @@ function triggerAllRiversRemove(): void {
     resizable: false,
     title: "Remove all rivers",
     buttons: {
-      Remove: function (this: any) {
+      Remove: function (this: HTMLElement) {
         $(this).dialog("close");
         removeAllRivers();
       },
-      Cancel: function (this: any) {
+      Cancel: function (this: HTMLElement) {
         $(this).dialog("close");
       }
     }

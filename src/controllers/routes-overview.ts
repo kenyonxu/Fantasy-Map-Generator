@@ -301,7 +301,7 @@ function triggerAllRoutesRemove(): void {
     resizable: false,
     title: lockedCount > 0 ? "Remove unlocked routes" : "Remove all routes",
     buttons: {
-      Remove: function (this: any) {
+      Remove: function (this: HTMLElement) {
         const routesToRemove = pack.routes.filter((route: Route) => !route.lock);
         if (!routesToRemove.length) {
           if (!pack.routes.length) {
@@ -320,7 +320,7 @@ function triggerAllRoutesRemove(): void {
         routesTable.refresh();
         $(this).dialog("close");
       },
-      Cancel: function (this: any) {
+      Cancel: function (this: HTMLElement) {
         $(this).dialog("close");
       }
     }
