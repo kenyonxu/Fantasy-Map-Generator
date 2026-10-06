@@ -66,6 +66,15 @@
 
 ## P1 — 性能与安全加固（局部重构，不改公共接口）
 
+> **✅ 已实现（2026-10-06，merge commit `b59aecb4`）**：8 个提交全部落地。最终门禁：tsc（根 + electron 双项目）零错误、biome 556 文件干净、vitest 1996/1996、test:scripts 54/54、assistant-context `--check` 同步。实施计划见 `docs/superpowers/plans/2026-10-06-p1-performance-security.md`。
+>
+> 实现偏差与裁决记录：
+> - 性能三项以结构复杂度证据替代实测耗时（可证明行为不变且有回归锁）；大地图计时基准列为后续。
+> - `uncompress` 沿用 P0 的提取导出模式（`Load.uncompress`）。
+> - AI 读图确认落地为 `script-consent.ts` + `confirmationDialog` 新增可选 `onClose`；`read_map` 工具描述同步改为如实说明全权限。
+> - 最终审查升级并修复了一项 Critical：确认对话框被 X/Escape 关闭时助手面板永久卡死。
+> - 后续登记：`confirmOnClose` 同类隐患（electron/main.ts:240-259）、`update3dTexture` 的 TextureLoader 无 onError（:893）、io 测试共享 mock 模块。
+
 | # | 位置 | 问题 | 修复 |
 |---|------|------|------|
 | 1 | `src/generators/goods-generator.ts:1015` | `new Function` 在 cell×good 双层循环内反复编译（10 万格地图数万次） | 提升到循环外、每个 good 编译一次（同文件 1051 行 `regeneratePlacement` 已有正确范式） |
