@@ -28,6 +28,15 @@
 
 目标：清掉 8 个确证 bug + XSS 群，可单独出一个 patch 版本。所有改动均为局部小改，不动公共接口。
 
+> **✅ 已实现（2026-10-06，merge commit `b6725089`）**：9 个提交全部落地。最终门禁：tsc 零错误、biome 550 文件干净、vitest 1980/1980（Windows 与 Linux 均绿）、test:scripts 54/54、assistant-context `--check` 同步。实施计划见 `docs/superpowers/plans/2026-10-06-p0-stabilization.md`。
+>
+> 实现偏差记录：
+> - 任务 1/5 分别提取了导出函数 `Load.repairInvalidCultures` 与 `extractStatement`，以便回归测试锁定真实实现（而非复制品）。
+> - 任务 2/3 的测试为镜像/文档式测试，锁不住生产行（cultures-generator.ts:1174、states-generator.ts:656-660）——已裁决，集成测试台归入 P2。
+> - XSS 族在最终审查后扩展到全部 6 个 overview（burgs/rivers/routes/diplomacy/regiments/military）；notes-editor 与 diplomacy chronicle 的富文本为故意设计，sanitize 归 P1。
+> - 审查判定 `cells.r[-1]` 为误报（有意的边界倾注哨兵）。
+> - 修复脚本测试的 import 副作用（`generate-assistant-context.mjs` 加 main-module guard）。
+
 ### 正确性 bug（6 项）
 
 | # | 位置 | 问题 | 修复 |
