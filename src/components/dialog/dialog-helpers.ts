@@ -33,6 +33,7 @@ interface ConfirmationOptions {
   confirm?: string;
   onCancel?: () => void;
   onConfirm?: () => void;
+  onClose?: () => void;
 }
 
 /** Ask the user to confirm an action that cannot be reverted */
@@ -43,7 +44,8 @@ export function confirmationDialog(options: ConfirmationOptions): void {
     cancel = "Cancel",
     confirm = "Continue",
     onCancel,
-    onConfirm
+    onConfirm,
+    onClose
   } = options;
 
   ensureEl("alertMessage").innerHTML = message;
@@ -51,6 +53,10 @@ export function confirmationDialog(options: ConfirmationOptions): void {
   $("#alert").dialog({
     resizable: false,
     title,
+    // also fires for the titlebar X and Escape, which skip both buttons
+    close: () => {
+      onClose?.();
+    },
     buttons: {
       [confirm]: function (this: HTMLElement) {
         onConfirm?.();

@@ -21,7 +21,14 @@ vi.mock("@/services/io/export", () => ({ ExportMap: { getRegionImage: regionImag
 const consentDialog = vi.hoisted(() => ({
   answer: true,
   asks: 0,
-  options: null as null | { title?: string; message?: string }
+  closeOnly: false,
+  options: null as null | {
+    title?: string;
+    message?: string;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+    onClose?: () => void;
+  }
 }));
 vi.mock("@/components/dialog/dialog-helpers", async importOriginal => ({
   ...(await importOriginal<typeof import("@/components/dialog/dialog-helpers")>()),
@@ -30,9 +37,14 @@ vi.mock("@/components/dialog/dialog-helpers", async importOriginal => ({
     message?: string;
     onConfirm?: () => void;
     onCancel?: () => void;
+    onClose?: () => void;
   }) => {
     consentDialog.asks++;
     consentDialog.options = options;
+    if (consentDialog.closeOnly) {
+      options.onClose?.();
+      return;
+    }
     (consentDialog.answer ? options.onConfirm : options.onCancel)?.();
   }
 }));
@@ -95,6 +107,7 @@ beforeEach(() => {
   propose.mockReset();
   consentDialog.answer = true;
   consentDialog.asks = 0;
+  consentDialog.closeOnly = false;
   consentDialog.options = null;
   scriptRuns.count = 0;
   resetScriptConsent();
@@ -278,6 +291,16 @@ it("adds no keys to a result that names no entity", async () => {
 it("asks before running a map script, and does not run it when declined", async () => {
   consentDialog.answer = false;
   const declined = await mapTool("read_map").handle({ code: "return 'secret'" });
+  expect(declined.isError).toBe(true);
+  expect(declined.content).toContain("declined");
+  expect(scriptRuns.count).toBe(0);
+  expect(declined.item).toMatchObject({ kind: "step", code: "return 'secret'" });
+});
+
+it("settles the consent prompt as declined when the dialog is closed via X or Escape", async () => {
+  consentDialog.closeOnly = true;
+  const declined = await mapTool("read_map").handle({ code: "return 'secret'" });
+  expect(typeof consentDialog.options?.onClose).toBe("function");
   expect(declined.isError).toBe(true);
   expect(declined.content).toContain("declined");
   expect(scriptRuns.count).toBe(0);

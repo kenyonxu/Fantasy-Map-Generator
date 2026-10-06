@@ -187,17 +187,24 @@ function namedKeys(text: string): string {
 // The script is model-authored and runs with the page's full permissions, so each session asks once
 async function scriptConsent(): Promise<boolean> {
   if (hasScriptConsent()) return true;
-  const ok = await new Promise<boolean>(resolve =>
+  const ok = await new Promise<boolean>(resolve => {
+    let settled = false;
+    const settle = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
     confirmationDialog({
       title: "Run AI-generated script?",
       message:
         "The Assistant wants to run a script on this page. The script has the page's full permissions: it is not sandboxed or read-only, and it can read anything the page can, including stored API keys. Continue only if this map comes from a source you trust.",
       cancel: "Don't run",
       confirm: "Run script",
-      onConfirm: () => resolve(true),
-      onCancel: () => resolve(false)
-    })
-  );
+      onConfirm: () => settle(true),
+      onCancel: () => settle(false),
+      onClose: () => settle(false)
+    });
+  });
   if (ok) giveScriptConsent();
   return ok;
 }
