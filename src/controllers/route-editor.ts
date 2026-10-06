@@ -157,15 +157,16 @@ function dragControlPoint(event: D3DragEvent<SVGCircleElement, unknown, number[]
   const initCell = event.subject[2];
   const pointIndex = route.points.indexOf(event.subject);
 
-  event.on("drag", function (this: any, dragEvent: D3DragEvent<SVGCircleElement, unknown, number[]>) {
-    this.setAttribute("cx", dragEvent.x);
-    this.setAttribute("cy", dragEvent.y);
+  event.on("drag", function (this: SVGCircleElement, dragEvent: D3DragEvent<SVGCircleElement, unknown, number[]>) {
+    this.setAttribute("cx", String(dragEvent.x));
+    this.setAttribute("cy", String(dragEvent.y));
 
     const x = rn(dragEvent.x, 2);
     const y = rn(dragEvent.y, 2);
     const cellId = Pack.findCell(x, y);
 
-    this.__data__ = route.points[pointIndex] = [x, y, cellId!];
+    route.points[pointIndex] = [x, y, cellId!];
+    select(this).datum(route.points[pointIndex]);
     redrawRoute(route);
     drawCells(route.points);
   });
@@ -227,7 +228,7 @@ function addControlPoint(this: SVGElement, event: PointerEvent): void {
   redrawRoute(route);
 }
 
-function handleControlPointClick(this: any): void {
+function handleControlPointClick(this: SVGCircleElement): void {
   const controlPoint = select(this);
   const point = controlPoint.datum() as number[];
   const route = getRoute();
@@ -250,7 +251,7 @@ function handleControlPointClick(this: any): void {
     ensureEl("routeSplit").classList.remove("pressed");
   }
 
-  function removeControlPoint(controlPoint: any): void {
+  function removeControlPoint(controlPoint: Selection<SVGCircleElement, unknown, null, undefined>): void {
     const isOnlyPointInCell = route.points.filter(p => p[2] === point[2]).length === 1;
     if (isOnlyPointInCell) {
       const prev = route.points[index - 1];

@@ -200,15 +200,15 @@ function dragControlPoint(event: D3DragEvent<SVGCircleElement, Point, unknown>):
 
   let movedToCell: number | null = null;
 
-  event.on("drag", function (this: any, dragEvent: D3DragEvent<SVGCircleElement, Point, unknown>) {
+  event.on("drag", function (this: SVGCircleElement, dragEvent: D3DragEvent<SVGCircleElement, Point, unknown>) {
     const { x, y } = dragEvent;
     const currentCell = Pack.findCell(x, y);
 
     movedToCell = initCell !== currentCell ? currentCell! : null;
 
-    this.setAttribute("cx", x);
-    this.setAttribute("cy", y);
-    this.__data__ = [rn(x, 1), rn(y, 1)];
+    this.setAttribute("cx", String(x));
+    this.setAttribute("cy", String(y));
+    select(this).datum<Point>([rn(x, 1), rn(y, 1)]);
     redrawRiver();
     drawCells(river.cells);
   });
@@ -251,7 +251,7 @@ function addControlPoint(this: SVGElement, event: PointerEvent): void {
   redrawRiver();
 }
 
-function removeControlPoint(this: any): void {
+function removeControlPoint(this: SVGCircleElement): void {
   this.remove();
   redrawRiver();
 
@@ -326,14 +326,14 @@ function removeRiver(): void {
     width: "22em",
     title: "Remove river and tributaries",
     buttons: {
-      Remove: function (this: any) {
+      Remove: function (this: HTMLElement) {
         $(this).dialog("close");
         const river = +selectedRiver.attr("id").slice(5);
         Rivers.remove(river);
         $("#riverEditor").dialog("close");
         Layers.draw("rivers", "labels");
       },
-      Cancel: function (this: any) {
+      Cancel: function (this: HTMLElement) {
         $(this).dialog("close");
       }
     }

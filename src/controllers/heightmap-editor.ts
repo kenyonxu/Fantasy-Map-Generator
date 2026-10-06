@@ -871,7 +871,7 @@ function mockHeightmapSelection(selection: number[]): void {
   const renderOcean = options.app.heightmapEditor.renderOcean;
 
   selection.forEach(i => {
-    let cell: any = select<SVGElement, unknown>("#viewbox").select("#heights").select(`#cell${i}`);
+    let cell = select<SVGElement, unknown>("#viewbox").select("#heights").select<SVGPolygonElement | null>(`#cell${i}`);
     if (!renderOcean && grid.cells.h[i] < 20) {
       cell.remove();
       return;
@@ -880,7 +880,7 @@ function mockHeightmapSelection(selection: number[]): void {
     if (!cell.size()) {
       cell = select<SVGElement, unknown>("#viewbox")
         .select("#heights")
-        .append("polygon")
+        .append<SVGPolygonElement | null>("polygon")
         .attr("points", String(Grid.getPolygon(i)))
         .attr("id", `cell${i}`);
     }
