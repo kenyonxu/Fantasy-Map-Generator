@@ -207,7 +207,7 @@ const readMap: Tool = {
   definition: {
     name: "read_map",
     description:
-      "Run read-only JavaScript in the page. Return the result; describe(value) inspects a value. Scripts may call downloadFile for CSV or JSON. The result ends with the keys of map entities it names.",
+      "Run JavaScript in the page with full page permissions. The user is prompted for consent once per session. Return the result; describe(value) inspects a value. Scripts may call downloadFile for CSV or JSON. The result ends with the keys of map entities it names.",
     input_schema: { type: "object", properties: { code: { type: "string" } }, required: ["code"] }
   },
   async handle(input) {

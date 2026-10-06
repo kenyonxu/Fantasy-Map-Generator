@@ -288,7 +288,9 @@ it("warns that a map script has the page's full permissions", async () => {
   await mapTool("read_map").handle({ code: "return 1" });
   expect(consentDialog.options?.title).toBe("Run AI-generated script?");
   expect(consentDialog.options?.message).toContain("full permissions");
+  expect(consentDialog.options?.message).toContain("not sandboxed or read-only");
   expect(consentDialog.options?.message).toContain("API keys");
+  expect(consentDialog.options?.message).toContain("source you trust");
 });
 
 it("runs scripts after consent without asking again in the same session", async () => {
