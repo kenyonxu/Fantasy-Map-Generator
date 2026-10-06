@@ -91,6 +91,17 @@
 
 ## P2 — 结构性还债（允许接口调整，不碰 .map 格式）
 
+> **✅ 已实现（2026-10-06，merge commit 见 git log）**：8 个提交全部落地。最终门禁：tsc 零错误、biome 555 文件干净、vitest 2019/2019（159 文件）、`src/generators/` 目录零 DOM 引用（grep 验证）。实施计划见 `docs/superpowers/plans/2026-10-06-p2-structural-debt.md`。
+>
+> 实现偏差与裁决记录：
+> - `priorityFlood` 落在 `src/generators/flood.ts`（非 utils）——生成器领域专属。洪泛行为等价经三次独立验证（逐行迁移、审查比对、终审确认 RNG 流/并列打破/过滤顺序一致）；cultures 的 `initialCost` 省略是行为保真的选择（旧代码本就不设种子 cost）。
+> - 洪泛黄金测试锁的是重构后语义（无前重构基准）；三个黄金值均经审查员独立手算复现。 cultures 的 0 成本 churn 修正在生产中不可达（所有边成本严格为正），是纯加固。
+> - `ensureEl` throw 化的实际影响面远小于预估（134 文件中仅 4 个需改动：15 处可空探测迁 `findEl`，1 处死检查移除）。
+> - 弹窗呈现最终落在 `src/components/dialog/dialog-helpers.ts`（非 lifecycle.ts）——避免 controllers→lifecycle→controllers 循环依赖，`lifecycle.generate()` 仍驱动呈现决策。
+> - P0 遗留两行（cultures:1174、states:656-660）已有集成测试锁。states 战争守卫确认只在手工编辑的存档上可达（生成路径不可达）——防御性保留。
+> - 修复波裁决：实现者拒绝终审的注释修正数字并经执行 trace 证明正确（`initialCost` 不传播，终审数字带 phantom +1）。
+> - 后续登记：P3 承接 controllers 剩余 119 处非事件 `any`、`Event & { id?: string }` 适配器；文档小修（generation-pipeline.md、flood.ts initialCost 注释）。
+
 | # | 范围 | 内容 |
 |---|------|------|
 | 1 | `cultures-generator.ts:1269-1359`、`religions-generator.ts:1027-1115`、`states-generator.ts:371-436` | 三处手抄 Dijkstra 洪泛（FlatQueue + cost 表 + lock 过滤）已发散且各自带坑；抽共享 `priorityFlood(seeds, edgeCost, canClaim)`，各生成器只供 cost 表；顺带修 cultures cost 无下限导致的 0 成本格反复入队 |
