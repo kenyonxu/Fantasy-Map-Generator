@@ -1002,6 +1002,12 @@ export class GoodsModule {
     const shuffledCells = shuffle(this.cells.i.slice());
     const goods = [...pack.goods];
 
+    const compiledSpreads = new Map<number, (methods: unknown) => boolean>();
+    for (const good of goods) {
+      if (!good.distribution || !good.chance) continue;
+      compiledSpreads.set(good.i, new Function(methods, `return ${good.distribution}`) as (m: unknown) => boolean);
+    }
+
     for (const cellId of shuffledCells) {
       if (!(cellId % 10)) shuffle(goods);
       if (this.cells.biome[cellId] === 11 && pack.biomes[11].habitability === 0) continue; // skip glaciers
@@ -1012,7 +1018,7 @@ export class GoodsModule {
         if (resources[good.i] >= resourceMaxCells) continue;
         if (Math.random() * 100 > good.chance) continue;
 
-        const spread = new Function(methods, `return ${good.distribution}`);
+        const spread = compiledSpreads.get(good.i)!;
         if (!spread(this.getMethods())) continue;
 
         this.cells.good[cellId] = good.i;
