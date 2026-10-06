@@ -545,7 +545,8 @@ describe("Religions.recalculate golden", () => {
 
     // golden from the converged priorityFlood: the church spans its culture (12/step), the cult its
     // state (15/step), then the heresy overruns the church's west (20/step) and stops past cell 10
-    // (160 <= 175 < 180); the flood semantics changed vs the legacy copies only for zero-cost churn (flood.test.ts)
+    // (160 <= 175 < 180 — seeds enter the queue at cost 0, initialCost never propagates); the
+    // flood semantics changed vs the legacy copies only for zero-cost churn (flood.test.ts)
     expect([...globalThis.pack.cells.religion]).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3, 3, 3, 4, 4, 4, 4, 4, 4]);
   });
 });

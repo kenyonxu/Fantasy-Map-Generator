@@ -402,8 +402,9 @@ describe("States.expandStates golden", () => {
     (globalThis as any).States.expandStates();
 
     // golden from the converged priorityFlood: West rides its -9 culture bonus west of the
-    // mountain (62.5 at cell 5, mountain cost 2200 blocks it), East pays 22..94/step up to cell 7;
-    // the flood semantics changed vs the legacy copies only for zero-cost churn (flood.test.ts)
+    // mountain (62.5 at cell 5, mountain cost 2200 blocks it), East pays 19-22/step up to cell 7
+    // (82 accumulated — seeds enter the queue at cost 0); the flood semantics changed vs the
+    // legacy copies only for zero-cost churn (flood.test.ts)
     expect([...globalThis.pack.cells.state]).toEqual([1, 1, 1, 1, 1, 1, 0, 2, 2, 2, 2, 2]);
     expect(globalThis.pack.burgs[1].state).toBe(1);
     expect(globalThis.pack.burgs[2].state).toBe(2);

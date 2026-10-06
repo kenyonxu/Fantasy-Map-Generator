@@ -100,9 +100,9 @@ describe("Cultures.expand golden", () => {
 
     Cultures.expand();
 
-    // golden from the converged priorityFlood: the faster plain culture crosses the mountain
-    // (195 < 330 accumulated cost) and claims up to cell 8, except unpopulated cell 7; the
-    // flood semantics changed vs the legacy copies only for the zero-cost churn case (flood.test.ts)
+    // golden from the converged priorityFlood: the plain culture crosses the mountain (195 < 270
+    // contest at cell 6) and holds cells 0-6, unpopulated cell 7 stays neutral, hunters take 8-11;
+    // the flood semantics changed vs the legacy copies only for the zero-cost churn case (flood.test.ts)
     expect([...pack.cells.culture]).toEqual([1, 1, 1, 1, 1, 1, 1, 0, 2, 2, 2, 2]);
   });
 });
