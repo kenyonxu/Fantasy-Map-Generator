@@ -22,6 +22,7 @@ import type { FillBoxElement } from "@/components/shared/fill-box";
 import { clearMainTip, tip } from "@/components/tooltips";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { Controllers } from "@/controllers";
+import type { HierarchyElement } from "@/controllers/hierarchy-tree";
 import { CULTURE_TYPES, type Culture } from "@/generators/cultures-generator";
 import { Emblems } from "@/generators/emblems-generator";
 import { clearLegend, drawLegend, hasLegend } from "@/renderers/draw-legend";
@@ -214,19 +215,20 @@ function refreshCulturesEditor(): void {
 }
 
 function culturesCollectStatistics(): void {
-  const { cells, cultures, burgs } = pack as any;
-  cultures.forEach((c: any) => {
+  const { cells, cultures, burgs } = pack;
+  cultures.forEach(c => {
     c.cells = c.area = c.rural = c.urban = 0;
   });
 
   for (const i of cells.i) {
     if (cells.h[i] < 20) continue;
     const cultureId = cells.culture[i];
-    cultures[cultureId].cells += 1;
-    cultures[cultureId].area += cells.area[i];
-    cultures[cultureId].rural += cells.pop[i];
+    const culture = cultures[cultureId];
+    culture.cells = (culture.cells ?? 0) + 1;
+    culture.area = (culture.area ?? 0) + cells.area[i];
+    culture.rural = (culture.rural ?? 0) + cells.pop[i];
     const burgId = cells.burg[i];
-    if (burgId) cultures[cultureId].urban += burgs[burgId].population;
+    if (burgId) culture.urban = (culture.urban ?? 0) + (burgs[burgId].population ?? 0);
   }
 }
 
@@ -702,23 +704,23 @@ function drawCultureCenters(): void {
     .data(data)
     .enter()
     .append("circle")
-    .attr("id", (d: any) => `cultureCenter${d.i}`)
-    .attr("data-id", (d: any) => d.i)
+    .attr("id", d => `cultureCenter${d.i}`)
+    .attr("data-id", d => d.i)
     .attr("r", 2)
-    .attr("fill", (d: any) => d.color)
-    .attr("cx", (d: any) => pack.cells.p[d.center][0])
-    .attr("cy", (d: any) => pack.cells.p[d.center][1])
-    .on("mouseenter", (event: MouseEvent, d: any) => {
+    .attr("fill", d => d.color ?? null)
+    .attr("cx", d => pack.cells.p[d.center!][0])
+    .attr("cy", d => pack.cells.p[d.center!][1])
+    .on("mouseenter", (event: MouseEvent, d) => {
       tip(tooltip, true);
       ensureEl("culturesBody").querySelector(`div[data-id='${d.i}']`)?.classList.add("selected");
       cultureHighlightOn(event);
     })
-    .on("mouseleave", (event: MouseEvent, d: any) => {
+    .on("mouseleave", (event: MouseEvent, d) => {
       tip("", true);
       ensureEl("culturesBody").querySelector(`div[data-id='${d.i}']`)?.classList.remove("selected");
       cultureHighlightOff(event);
     })
-    .call(drag<SVGCircleElement, any>().on("start", cultureCenterDrag));
+    .call(drag<SVGCircleElement, Culture>().on("start", cultureCenterDrag));
 }
 
 function cultureCenterDrag(this: SVGCircleElement, event: D3DragEvent<SVGCircleElement, unknown, unknown>): void {
@@ -785,8 +787,8 @@ function togglePercentageMode(): void {
 async function showHierarchy(): Promise<void> {
   if (customization) return;
 
-  const getDescription = (culture: any) => {
-    const { name, type, rural, urban } = culture;
+  const getDescription = (culture: HierarchyElement) => {
+    const { name, type, rural = 0, urban = 0 } = culture as unknown as Culture;
 
     const population =
       rural * options.map.units.population.scale +
@@ -795,7 +797,7 @@ async function showHierarchy(): Promise<void> {
     return `${name} culture. ${type}. ${populationText}`;
   };
 
-  const getShape = ({ type }: any) => {
+  const getShape = ({ type }: HierarchyElement) => {
     if (type === "Generic") return "circle";
     if (type === "River") return "diamond";
     if (type === "Lake") return "hexagon";
@@ -807,7 +809,7 @@ async function showHierarchy(): Promise<void> {
 
   Controllers.HierarchyTree.open({
     type: "cultures",
-    data: pack.cultures as any,
+    data: pack.cultures as unknown as HierarchyElement[],
     onNodeEnter: cultureHighlightOn,
     onNodeLeave: cultureHighlightOff,
     getDescription,
@@ -941,38 +943,57 @@ function pickCulturesCsv(): void {
   culturesInput.click();
 }
 
+/** One row of the cultures CSV import format; `origins` later gets replaced by parsed origin ids */
+interface CultureCsvRow {
+  name: string;
+  i: number;
+  color: string;
+  expansionism: number;
+  type: string;
+  population: number;
+  emblemsShape: string;
+  origins: string;
+  namesbase: string;
+}
+
 async function uploadCulturesData(this: HTMLInputElement): Promise<void> {
   const file = this.files![0];
   this.value = "";
   const csv = await file.text();
-  const data: any[] = csvParse(csv, d => ({
-    name: d.Name,
-    i: +d.Id!,
-    color: d.Color,
-    expansionism: +d.Expansionism!,
-    type: d.Type,
-    population: +d.Population!,
-    emblemsShape: d["Emblems Shape"],
-    origins: d.Origins,
-    namesbase: d.Namesbase
-  }));
+  const data = csvParse(
+    csv,
+    (d): CultureCsvRow => ({
+      name: d.Name!,
+      i: +d.Id!,
+      color: d.Color!,
+      expansionism: +d.Expansionism!,
+      type: d.Type!,
+      population: +d.Population!,
+      emblemsShape: d["Emblems Shape"]!,
+      origins: d.Origins!,
+      namesbase: d.Namesbase!
+    })
+  );
 
-  const { cultures, cells } = pack as any;
+  const { cultures, cells } = pack;
   const shapes = Object.keys(Emblems.shields.types).flatMap(type => Object.keys(Emblems.shields[type]));
 
-  const populated = cells.pop.map((c: number, i: number) => (c ? i : null)).filter((c: number | null) => c);
-  cultures.forEach((item: any) => {
+  const populated = Array.from(cells.pop)
+    .map((pop, i) => (pop ? i : null))
+    .filter((cell): cell is number => cell !== null);
+  cultures.forEach(item => {
     if (item.i) item.removed = true;
   });
 
   for (const culture of data) {
-    let current: any;
+    let current: Culture;
     if (culture.i < cultures.length) {
       current = cultures[culture.i];
       current.removed = false;
 
-      const urban = current.urban * options.map.units.population.urbanization.rate; // in rural terms
-      const ratio = current.rural + urban ? urban / (current.rural + urban) : 0;
+      const urban = (current.urban ?? 0) * options.map.units.population.urbanization.rate; // in rural terms
+      const rural = current.rural ?? 0;
+      const ratio = rural + urban ? urban / (rural + urban) : 0;
       if (culture.population >= 0) {
         try {
           Cultures.setPopulation(culture.i, culture.population * (1 - ratio), culture.population * ratio);
@@ -981,7 +1002,19 @@ async function uploadCulturesData(this: HTMLInputElement): Promise<void> {
         }
       }
     } else {
-      current = { i: cultures.length, center: ra(populated), area: 0, cells: 0, origins: [0], rural: 0, urban: 0 };
+      current = {
+        name: "",
+        i: cultures.length,
+        base: 0,
+        type: "Generic",
+        shield: "",
+        center: ra(populated),
+        area: 0,
+        cells: 0,
+        origins: [0],
+        rural: 0,
+        urban: 0
+      };
       cultures.push(current);
     }
 
@@ -993,11 +1026,10 @@ async function uploadCulturesData(this: HTMLInputElement): Promise<void> {
       current.color = culture.color;
       current.expansionism = +culture.expansionism;
 
-      if (CULTURE_TYPES.includes(culture.type)) current.type = culture.type;
-      else current.type = "Generic";
+      current.type = CULTURE_TYPES.find(t => t === culture.type) ?? "Generic";
     }
 
-    culture.origins = current.i ? restoreOrigins(culture.origins || "") : [null];
+    if (current.i) restoreOrigins(culture.origins || "");
     current.shield = shapes.includes(culture.emblemsShape) ? culture.emblemsShape : "heater";
     current.base = Names.nameBases.findIndex(n => n.name === culture.namesbase); // can be -1 if namesbase is not found
 
@@ -1009,18 +1041,18 @@ async function uploadCulturesData(this: HTMLInputElement): Promise<void> {
         .filter(s => s);
 
       const originIds = originNames.map(name => {
-        const id = cultures.findIndex((c: any) => c.name === name);
+        const id = cultures.findIndex(c => c.name === name);
         return id === -1 ? null : id;
       });
 
-      current.origins = originIds.filter((id: number | null) => id !== null);
+      current.origins = originIds.filter((id): id is number => id !== null);
       if (!current.origins.length) current.origins = [0];
     }
   }
 
   cultures
-    .filter((c: any) => c.removed)
-    .forEach((c: any) => {
+    .filter(c => c.removed)
+    .forEach(c => {
       removeCulture(c.i);
     });
 

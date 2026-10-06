@@ -1,4 +1,4 @@
-import { max, pack as packLayout, select, stratify } from "d3";
+import { type HierarchyCircularNode, max, pack as packLayout, select, stratify } from "d3";
 import { createAnnexMode } from "@/components/annex-mode";
 import {
   closeDialogs,
@@ -493,8 +493,8 @@ function stateHighlightOn(event: Event): void {
 
 function stateHighlightOff(): void {
   select("#debug")
-    .selectAll(".highlight")
-    .each(function (this: any) {
+    .selectAll<SVGPathElement, unknown>(".highlight")
+    .each(function () {
       select(this).transition().duration(1000).attr("opacity", 0).remove();
     });
 }
@@ -913,17 +913,19 @@ function showStatesChart(): void {
     return;
   }
 
-  const root: any = stratify<any>()
-    .id(d => String(d.i))
-    .parentId(d => (d.i ? "0" : null))(statesData)
-    .sum((d: any) => d.area)
-    .sort((a: any, b: any) => b.value - a.value);
-
   const size = 150 + 200 * ensureEl<HTMLInputElement>("uiSize").valueAsNumber;
   const margin = { top: 0, right: -50, bottom: 0, left: -50 };
   const w = size - margin.left - margin.right;
   const h = size - margin.top - margin.bottom;
-  const treeLayout = packLayout<any>().size([w, h]).padding(3);
+  const treeLayout = packLayout<State>().size([w, h]).padding(3);
+
+  const root = treeLayout(
+    stratify<State>()
+      .id(d => String(d.i))
+      .parentId(d => (d.i ? "0" : null))(statesData)
+      .sum(d => d.area ?? 0)
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+  );
 
   // prepare svg
   alertMessage.innerHTML = /* html */ `<select id="statesTreeType" style="display:block; margin-left:13px; font-size:11px">
@@ -946,22 +948,20 @@ function showStatesChart(): void {
   const graph = svg.append("g").attr("transform", `translate(-50, 0)`);
   ensureEl("statesTreeType").addEventListener("change", updateChart);
 
-  treeLayout(root);
-
   const node = graph
     .selectAll("g")
     .data(root.leaves())
     .enter()
     .append("g")
-    .attr("transform", (d: any) => `translate(${d.x},${d.y})`)
-    .attr("data-id", (d: any) => d.data.i)
-    .on("mouseenter", (event: MouseEvent, d: any) => showInfo(event, d))
+    .attr("transform", d => `translate(${d.x},${d.y})`)
+    .attr("data-id", d => d.data.i)
+    .on("mouseenter", (event: MouseEvent, d) => showInfo(event, d))
     .on("mouseleave", (event: MouseEvent) => hideInfo(event));
 
   node
     .append("circle")
-    .attr("fill", (d: any) => d.data.color)
-    .attr("r", (d: any) => d.r);
+    .attr("fill", d => d.data.color ?? null)
+    .attr("r", d => d.r);
 
   const exp = /(?=[A-Z][^A-Z])/g;
   const lp = (n: string) => (max(n.split(exp).map(p => p.length)) ?? 0) + 1; // longest name part + 1
@@ -969,24 +969,24 @@ function showStatesChart(): void {
   node
     .append("text")
     .attr("text-rendering", "optimizeSpeed")
-    .style("font-size", (d: any) => `${rn((d.r ** 0.97 * 4) / lp(d.data.name), 2)}px`)
+    .style("font-size", d => `${rn((d.r ** 0.97 * 4) / lp(d.data.name), 2)}px`)
     .selectAll("tspan")
-    .data((d: any) => d.data.name.split(exp))
+    .data(d => d.data.name.split(exp))
     .join("tspan")
     .attr("x", 0)
-    .text((d: any) => d)
-    .attr("dy", (_d: any, i: number, n: any) => `${i ? 1 : (n.length - 1) / -2}em`);
+    .text(d => d)
+    .attr("dy", (_d, i, n) => `${i ? 1 : (n.length - 1) / -2}em`);
 
-  function showInfo(ev: MouseEvent, d: any) {
+  function showInfo(ev: MouseEvent, d: HierarchyCircularNode<State>) {
     select(ev.target as Element)
       .select("circle")
       .classed("selected", true);
     const state = d.data.fullName;
 
-    const area = `${getArea(d.data.area)} ${getAreaUnit()}`;
-    const rural = rn(d.data.rural * options.map.units.population.scale);
+    const area = `${getArea(d.data.area ?? 0)} ${getAreaUnit()}`;
+    const rural = rn((d.data.rural ?? 0) * options.map.units.population.scale);
     const urban = rn(
-      d.data.urban * options.map.units.population.scale * options.map.units.population.urbanization.rate
+      (d.data.urban ?? 0) * options.map.units.population.scale * options.map.units.population.urbanization.rate
     );
 
     const option = ensureEl<HTMLSelectElement>("statesTreeType").value;
@@ -1017,14 +1017,14 @@ function showStatesChart(): void {
   function updateChart(this: HTMLSelectElement) {
     const value =
       this.value === "area"
-        ? (d: any) => d.area
+        ? (d: State) => d.area ?? 0
         : this.value === "rural"
-          ? (d: any) => d.rural
+          ? (d: State) => d.rural ?? 0
           : this.value === "urban"
-            ? (d: any) => d.urban
+            ? (d: State) => d.urban ?? 0
             : this.value === "burgs"
-              ? (d: any) => d.burgs
-              : (d: any) => d.rural + d.urban;
+              ? (d: State) => d.burgs ?? 0
+              : (d: State) => (d.rural ?? 0) + (d.urban ?? 0);
 
     root.sum(value);
     node.data(treeLayout(root).leaves());
@@ -1032,17 +1032,17 @@ function showStatesChart(): void {
     node
       .transition()
       .duration(1500)
-      .attr("transform", (d: any) => `translate(${d.x},${d.y})`);
+      .attr("transform", d => `translate(${d.x},${d.y})`);
     node
       .select("circle")
       .transition()
       .duration(1500)
-      .attr("r", (d: any) => d.r);
+      .attr("r", d => d.r);
     node
       .select("text")
       .transition()
       .duration(1500)
-      .style("font-size", (d: any) => `${rn((d.r ** 0.97 * 4) / lp(d.data.name), 2)}px`);
+      .style("font-size", d => `${rn((d.r ** 0.97 * 4) / lp(d.data.name), 2)}px`);
   }
 
   $("#alert").dialog({

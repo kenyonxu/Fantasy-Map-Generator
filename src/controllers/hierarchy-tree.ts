@@ -15,7 +15,7 @@ import { tip } from "@/components/tooltips";
 import { capitalize } from "@/utils";
 import { ensureEl, minmax } from "../utils";
 
-type HierarchyElement = {
+export type HierarchyElement = {
   i: number;
   name: string;
   code?: string;
