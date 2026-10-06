@@ -1,6 +1,7 @@
 // Building blocks shared by every editor dialog
 
 import { dialogState } from "@/components/dialog/state";
+import type { CulturesClimateReport } from "@/generators/cultures-generator";
 import { ensureEl, findEl, minmax } from "@/utils";
 
 /** The note button every entity dialog puts in its toolbar. `subject` completes "notes (legend) for ..." */
@@ -96,6 +97,21 @@ export function alertDialog({ title = "Warning", message, width = "26em" }: Aler
     }
   });
 }
+
+/** Show the extreme-climate outcome Cultures.generate() reported; called by the pipeline drivers after a run */
+export const presentCulturesClimate = (report: CulturesClimateReport) => {
+  if (!report.warning && !report.error) return;
+  ensureEl("alertMessage").innerHTML = report.error ?? report.warning ?? "";
+  $("#alert").dialog({
+    resizable: false,
+    title: "Extreme climate warning",
+    buttons: {
+      Ok: function () {
+        $(this).dialog("close");
+      }
+    }
+  });
+};
 
 // TODO: editors should register a refresh callback when they open,
 // so it can call them without needing to know their button IDs

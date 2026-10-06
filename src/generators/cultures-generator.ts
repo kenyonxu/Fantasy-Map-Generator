@@ -23,6 +23,9 @@ declare global {
   var Cultures: CulturesGenerator;
 }
 
+/** Extreme-climate outcome Cultures.generate() reports instead of driving the DOM */
+export type CulturesClimateReport = { warning?: string; error?: string };
+
 export interface Culture {
   name: string;
   i: number;
@@ -1033,8 +1036,7 @@ class CulturesGenerator {
     ];
   }
 
-  /** Extreme-climate outcomes are returned to the caller (pipeline/app shell) for presentation */
-  generate(): { warning?: string; error?: string } {
+  generate(): CulturesClimateReport {
     options.map.cultures.set = options.generation.cultures.set;
     this.cells = pack.cells;
     const cultureIds = new Uint16Array(this.cells.i.length); // cell cultures
@@ -1205,7 +1207,7 @@ class CulturesGenerator {
       c.base = c.base % Names.nameBases.length;
     });
 
-    return { warning };
+    return warning ? { warning } : {};
   }
 
   /** Found a culture centered at a map point; it takes land when cultures are recalculated. Returns its id */

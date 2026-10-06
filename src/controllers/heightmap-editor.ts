@@ -13,7 +13,12 @@ import {
   scaleSequential,
   select
 } from "d3";
-import { closeDialogs, destroyDialog, refreshEditors } from "@/components/dialog/dialog-helpers";
+import {
+  closeDialogs,
+  destroyDialog,
+  presentCulturesClimate,
+  refreshEditors
+} from "@/components/dialog/dialog-helpers";
 import { dialogState } from "@/components/dialog/state";
 import { Layers } from "@/components/layers";
 import { changeViewMode } from "@/components/options/view-mode";
@@ -23,7 +28,7 @@ import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { viewport } from "@/components/viewport";
 import { Controllers } from "@/controllers";
 import { heightmapTemplates } from "@/data/heightmap-templates";
-import { ErasePipeline } from "@/generators/generation-pipeline";
+import { type EraseContext, ErasePipeline } from "@/generators/generation-pipeline";
 import { GraphOverride } from "@/generators/graph-override";
 import { removeEmblem } from "@/renderers/draw-emblems";
 import { HeightmapColorSchemes } from "@/renderers/heightmap-color-schemes";
@@ -538,7 +543,9 @@ async function regenerateErasedData(): Promise<void> {
   pack.relief = [];
 
   const erosionAllowed = options.app.heightmapEditor.allowErosion;
-  await ErasePipeline.run({ erosion: erosionAllowed });
+  const context: EraseContext = { erosion: erosionAllowed };
+  await ErasePipeline.run(context);
+  presentCulturesClimate(context.culturesClimate ?? {});
 }
 
 function restoreKeptData(): void {

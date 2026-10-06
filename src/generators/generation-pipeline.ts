@@ -1,25 +1,10 @@
 // Canonical generation sequence, as a declared pipeline instead of a hand-written call list. See docs/architecture/generation-pipeline.md.
+import type { CulturesClimateReport } from "@/generators/cultures-generator";
 import { GraphOverride } from "@/generators/graph-override";
 import { Pipeline, type PipelineStep } from "@/generators/pipeline";
 import { Population } from "@/generators/population-generator";
 import type { GridGraph } from "@/types/GridGraph";
 import { Coordinates } from "./coordinates";
-
-// Cultures.generate() reports extreme-climate outcomes instead of driving the DOM; the pipeline is
-// the app-shell layer allowed to present them
-const presentCulturesClimate = (result: { warning?: string; error?: string }) => {
-  if (!result.warning && !result.error) return;
-  alertMessage.innerHTML = result.error ?? result.warning ?? "";
-  $("#alert").dialog({
-    resizable: false,
-    title: "Extreme climate warning",
-    buttons: {
-      Ok: function () {
-        $(this).dialog("close");
-      }
-    }
-  });
-};
 
 const generationPipelineSteps = [
   { id: "grid", run: ({ graph }) => Grid.prepare(graph) },
@@ -41,7 +26,7 @@ const generationPipelineSteps = [
   { id: "ice", run: () => Ice.generate() },
   { id: "goods", run: () => Goods.generate() },
   { id: "rankCells", run: () => Population.rankCells() },
-  { id: "cultures", run: () => presentCulturesClimate(Cultures.generate()) },
+  { id: "cultures", run: context => (context.culturesClimate = Cultures.generate()) },
   { id: "culturesExpand", run: () => Cultures.expand() },
   { id: "burgs", run: () => Burgs.generate() },
   { id: "states", run: () => States.generate() },
@@ -66,8 +51,10 @@ const generationPipelineSteps = [
 
 type GenerationPipelineStepId = (typeof generationPipelineSteps)[number]["id"];
 
-type GenerationContext = {
+export type GenerationContext = {
   graph?: GridGraph; // pre-created grid to use instead of generating one
+  // extreme-climate report from the cultures step, presented by the caller (components/lifecycle)
+  culturesClimate?: CulturesClimateReport;
 };
 export const GenerationPipeline = new Pipeline<GenerationPipelineStepId, GenerationContext>(
   "Generation Pipeline",
@@ -88,7 +75,7 @@ const erasePipelineSteps = [
   { id: "ice", run: () => Ice.generate() },
   { id: "goods", run: () => Goods.generate() },
   { id: "rankCells", run: () => Population.rankCells() },
-  { id: "cultures", run: () => presentCulturesClimate(Cultures.generate()) },
+  { id: "cultures", run: context => (context.culturesClimate = Cultures.generate()) },
   { id: "culturesExpand", run: () => Cultures.expand() },
   { id: "burgs", run: () => Burgs.generate() },
   { id: "states", run: () => States.generate() },
@@ -109,7 +96,11 @@ const erasePipelineSteps = [
   { id: "zones", run: () => Zones.generate() }
 ] as const satisfies PipelineStep<GenerationPipelineStepId, EraseContext>[];
 
-type EraseContext = { erosion: boolean };
+export type EraseContext = {
+  erosion: boolean;
+  // extreme-climate report from the cultures step, presented by the caller (heightmap editor)
+  culturesClimate?: CulturesClimateReport;
+};
 export const ErasePipeline = new Pipeline<GenerationPipelineStepId, EraseContext>(
   "Erase Heightmap",
   erasePipelineSteps
