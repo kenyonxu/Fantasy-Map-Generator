@@ -19,7 +19,7 @@ import type { State } from "@/generators/states-generator";
 import { EmblemRenderer } from "@/renderers/emblems/renderer";
 import { removeRelationsMark, showRelations } from "@/renderers/overlays/diplomacy";
 import { downloadFile, getFileName } from "@/utils";
-import { ensureEl, findEl, getPointer } from "../utils";
+import { ensureEl, escapeHtml, findEl, getPointer, toCsvField } from "../utils";
 
 const dialogId = "diplomacyOverview" as const;
 const position = { my: "right top", at: "right-10 top+10", of: "svg", collision: "fit" };
@@ -159,8 +159,8 @@ function renderDiplomacyPage(view: TableView<State>): void {
   const selectedName = states[selectedId].name;
 
   EmblemRenderer.trigger(`stateCOA${selectedId}`, states[selectedId].coa);
-  let lines = /* html */ `<div class="states Self" data-id=${selectedId} data-tip="List below shows relations to ${selectedName}">
-    <div data-col="name"><svg class="coaIcon" viewBox="0 0 200 200"><use href="#stateCOA${selectedId}"></use></svg><span>${states[selectedId].fullName}</span></div>
+  let lines = /* html */ `<div class="states Self" data-id=${selectedId} data-tip="List below shows relations to ${escapeHtml(selectedName)}">
+    <div data-col="name"><svg class="coaIcon" viewBox="0 0 200 200"><use href="#stateCOA${selectedId}"></use></svg><span>${escapeHtml(states[selectedId].fullName ?? "")}</span></div>
     <div data-col="relations"></div>
   </div>`;
 
@@ -169,14 +169,14 @@ function renderDiplomacyPage(view: TableView<State>): void {
     const relation = isRelation(storedRelation) ? storedRelation : "Invalid";
     const { color, inText } = RELATIONS[relation] ?? { color: "#a9a9a9", inText: "has an invalid relation to" };
 
-    const tipText = `${state.name} ${inText} ${selectedName}`;
-    const tipSelect = `${tipText}. Click to see relations to ${state.name}`;
+    const tipText = `${escapeHtml(state.name)} ${inText} ${escapeHtml(selectedName)}`;
+    const tipSelect = `${tipText}. Click to see relations to ${escapeHtml(state.name)}`;
 
     const name = state.fullName!.length < 23 ? state.fullName : state.name;
     EmblemRenderer.trigger(`stateCOA${state.i}`, state.coa);
 
-    lines += /* html */ `<div class="states" data-id=${state.i} data-name="${name}" data-relations="${relation}">
-      <div data-col="name" data-tip="${tipSelect}"><svg class="coaIcon" viewBox="0 0 200 200"><use href="#stateCOA${state.i}"></use></svg><span>${name}</span></div>
+    lines += /* html */ `<div class="states" data-id=${state.i} data-name="${escapeHtml(name ?? "")}" data-relations="${relation}">
+      <div data-col="name" data-tip="${tipSelect}"><svg class="coaIcon" viewBox="0 0 200 200"><use href="#stateCOA${state.i}"></use></svg><span>${escapeHtml(name ?? "")}</span></div>
       <div data-col="relations" data-tip="${tipText}">
         <fill-box fill="${color}" size=".9em"></fill-box>
         ${relation}
@@ -316,18 +316,18 @@ function showMatrix(): void {
   const diplomacyMatrixBody = ensureEl("diplomacyMatrixBody");
 
   let table = `<table><thead><tr><th data-tip='&#8205;'></th>`;
-  table += `${states.map(state => `<th data-tip='Relations to ${state.fullName}'>${state.name}</th>`).join("")}</tr>`;
+  table += `${states.map(state => `<th data-tip='Relations to ${escapeHtml(state.fullName ?? "")}'>${escapeHtml(state.name)}</th>`).join("")}</tr>`;
   table += `<tbody>`;
 
   states.forEach(state => {
-    table += `<tr data-id=${state.i}><th data-tip='Relations of ${state.fullName}'>${state.name}</th>${states
+    table += `<tr data-id=${state.i}><th data-tip='Relations of ${escapeHtml(state.fullName ?? "")}'>${escapeHtml(state.name)}</th>${states
       .map(objectState => {
         if (state.i === objectState.i) return `<td class="x">x</td>`;
         const relation = state.diplomacy?.[objectState.i] ?? "x";
         if (!isRelation(relation)) {
           return `<td data-tip="Invalid relation" class="Unknown">Invalid</td>`;
         }
-        const t = `${state.fullName} ${RELATIONS[relation].inText} ${objectState.fullName}`;
+        const t = `${escapeHtml(state.fullName ?? "")} ${RELATIONS[relation].inText} ${escapeHtml(objectState.fullName ?? "")}`;
         return `<td data-tip='${t}' class='${relation}'>${relation}</td>`;
       })
       .join("")}</tr>`;
@@ -361,10 +361,10 @@ function exportCsv(): void {
   const states = pack.states.filter(s => s.i && !s.removed);
   const valid = states.map(s => s.i);
 
-  let data = `,${states.map(s => s.name).join(",")}\n`; // headers
+  let data = `,${states.map(s => toCsvField(s.name)).join(",")}\n`; // headers
   states.forEach(s => {
     const rels = s.diplomacy!.filter((_v, i) => valid.includes(i));
-    data += `${s.name},${rels.join(",")}\n`;
+    data += `${toCsvField(s.name)},${rels.join(",")}\n`;
   });
 
   const name = `${getFileName("Relations")}.csv`;

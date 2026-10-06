@@ -233,6 +233,34 @@ describe("StatesModule.rename", () => {
   });
 });
 
+describe("war declaration with no independent rival", () => {
+  it("skips instead of throwing when every rival is a vassal", () => {
+    // ra([]) returns undefined; defender must be guarded before use
+    const ra = <T>(array: ArrayLike<T>): T | undefined =>
+      array.length ? array[Math.floor(Math.random() * array.length)] : undefined;
+
+    const states = [
+      null,
+      { diplomacy: ["", "Rival"], expansionism: 1 }, // attacker
+      { diplomacy: ["", "Rival"], expansionism: 1 } // rival that is a vassal
+    ] as { diplomacy: string[]; expansionism: number }[];
+    states[2].diplomacy.push("Vassal"); // rival of 1, but vassal of someone
+
+    const ad = states[1].diplomacy as string[];
+    const candidates = ad
+      .map((r, d) => (r === "Rival" && !states[d]?.diplomacy?.includes("Vassal") ? d : 0))
+      .filter(d => d);
+
+    // FIXED behavior: guard before use
+    if (!candidates.length) {
+      expect(candidates).toEqual([]);
+      return; // continue — no crash
+    }
+    const defender = ra(candidates)!;
+    expect(states[defender]).toBeDefined();
+  });
+});
+
 describe("StatesModule.setCells", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();

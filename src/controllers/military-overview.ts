@@ -18,7 +18,7 @@ import { Controllers } from "@/controllers";
 import type { State } from "@/generators/states-generator";
 import type { MilitaryUnit } from "@/types/Military";
 import { downloadFile, getFileName } from "@/utils";
-import { capitalize, ensureEl, escapeHtml, rn, sanitizeId, si, wiki } from "../utils";
+import { capitalize, ensureEl, escapeHtml, rn, sanitizeId, si, toCsvField, wiki } from "../utils";
 
 const dialogId = "militaryOverview" as const;
 const position = { my: "right top", at: "right-10 top+10", of: "svg", collision: "fit" };
@@ -258,8 +258,8 @@ function renderMilitaryPage(view: TableView<MilitaryRow>): void {
         })
         .join("");
       return /* html */ `<div class="states" data-id="${row.state.i}">
-        <fill-box data-col="color" data-tip="${row.state.fullName}" fill="${row.state.color}" disabled></fill-box>
-        <input data-col="state" data-tip="${row.state.fullName}" value="${row.state.name}" readonly />
+        <fill-box data-col="color" data-tip="${escapeHtml(row.state.fullName ?? "")}" fill="${row.state.color}" disabled></fill-box>
+        <input data-col="state" data-tip="${escapeHtml(row.state.fullName ?? "")}" value="${escapeHtml(row.state.name)}" readonly />
         ${unitCells}
         <div data-col="total" data-tip="Total state military personnel (considering crew)" style="font-weight:bold">${percentage ? percent(row.total, totals.total) : si(row.total)}</div>
         <div data-col="population" data-tip="State population">${percentage ? percent(row.population, totals.population) : si(row.population)}</div>
@@ -455,7 +455,7 @@ function militaryCustomize(): void {
     row.innerHTML = /* html */ `<td>
           <button data-type="icon" data-tip="Click to select unit icon" translate="no"></button>
         </td>
-        <td><input data-tip="Type unit name. If name is changed for existing unit, old unit will be replaced" value="${name}" /></td>
+        <td><input data-tip="Type unit name. If name is changed for existing unit, old unit will be replaced" value="${escapeHtml(name)}" /></td>
         <td>${getLimitButton("biomes")}</td>
         <td>${getLimitButton("states")}</td>
         <td>${getLimitButton("cultures")}</td>
@@ -628,7 +628,7 @@ function downloadMilitaryData(): void {
   let data = `Id,State,${units.map(u => capitalize(u)).join(",")},Total,Population,Rate,War Alert\n`; // headers
 
   for (const row of getMilitaryData()) {
-    data += `${row.state.i},${row.state.name},${units.map(unit => row.forces[unit] || 0).join(",")},${row.total},${row.population},${rn(row.rate, 2)}%,${row.alert}\n`;
+    data += `${row.state.i},${toCsvField(row.state.name)},${units.map(unit => row.forces[unit] || 0).join(",")},${row.total},${row.population},${rn(row.rate, 2)}%,${row.alert}\n`;
   }
 
   const name = `${getFileName("Military")}.csv`;

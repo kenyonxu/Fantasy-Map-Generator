@@ -653,9 +653,11 @@ class StatesModule {
       if (ad.includes("Enemy")) continue; // already at war
 
       // random independent rival
-      const defender = ra(
-        ad.map((r, d) => (r === "Rival" && !states[d].diplomacy!.includes("Vassal") ? d : 0)).filter(d => d)
-      );
+      const candidates = ad
+        .map((r, d) => (r === "Rival" && !states[d].diplomacy!.includes("Vassal") ? d : 0))
+        .filter(d => d);
+      if (!candidates.length) continue; // every rival is a vassal of a third party
+      const defender = ra(candidates);
       let ap = stateAreas[attacker] * states[attacker].expansionism;
       let dp = stateAreas[defender] * states[defender].expansionism;
       if (ap < dp * gauss(1.6, 0.8, 0, 10, 2)) continue; // defender is too strong

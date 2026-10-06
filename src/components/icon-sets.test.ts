@@ -14,7 +14,7 @@ const directory = (folder: string): Record<string, string> => {
   return Object.fromEntries(
     readdirSync(root, { recursive: true, encoding: "utf8" })
       .filter(file => file.endsWith(".svg"))
-      .map(file => [file.replace(/\.svg$/, ""), readFileSync(`${root}/${file}`, "utf8")])
+      .map(file => [file.replace(/\\/g, "/").replace(/\.svg$/, ""), readFileSync(`${root}/${file}`, "utf8")])
   );
 };
 

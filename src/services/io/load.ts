@@ -22,6 +22,7 @@ import { Services } from "@/services";
 import { declareFont } from "@/services/fonts";
 import { logStats } from "@/services/logging";
 import { clearCache, compareVersions, isValidVersion, parseMapVersion, VERSION } from "@/services/versioning";
+import type { PackedGraph } from "@/types/PackedGraph";
 import { ensureEl, escapeHtml, last, link, parseError, rn, safeParseJSON } from "@/utils";
 
 async function quickLoad(): Promise<void> {
@@ -252,6 +253,18 @@ function showUploadMessage(type: string, mapData: string[] | null, mapVersion: s
   });
 }
 
+function repairInvalidCultures(pack: PackedGraph): void {
+  const { cells } = pack;
+  const invalidCultures = [...new Set(cells.culture)].filter(c => !pack.cultures[c] || pack.cultures[c].removed);
+  invalidCultures.forEach(c => {
+    const invalidCells = cells.i.filter(i => cells.culture[i] === c);
+    invalidCells.forEach(i => {
+      cells.culture[i] = 0; // FIXED: was cells.province[i] = 0
+    });
+    ERROR && console.error("[Data integrity] Invalid culture", c, "is assigned to cells", invalidCells);
+  });
+}
+
 async function parseLoadedData(data: string[], mapVersion: string | null): Promise<void> {
   let isLogGroupOpen = false;
 
@@ -441,14 +454,7 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
         ERROR && console.error("[Data integrity] Invalid province", p, "is assigned to cells", invalidCells);
       });
 
-      const invalidCultures = [...new Set(cells.culture)].filter(c => !pack.cultures[c] || pack.cultures[c].removed);
-      invalidCultures.forEach(c => {
-        const invalidCells = cells.i.filter(i => cells.culture[i] === c);
-        invalidCells.forEach(i => {
-          cells.province[i] = 0;
-        });
-        ERROR && console.error("[Data integrity] Invalid culture", c, "is assigned to cells", invalidCells);
-      });
+      repairInvalidCultures(pack);
 
       const invalidReligions = [...new Set(cells.religion)].filter(
         r => !pack.religions[r] || pack.religions[r].removed
@@ -720,5 +726,6 @@ export const Load = {
   createSharableDropboxLink,
   loadMapFromURL,
   showUploadErrorMessage,
-  uploadMap
+  uploadMap,
+  repairInvalidCultures
 };

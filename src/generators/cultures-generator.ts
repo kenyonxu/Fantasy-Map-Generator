@@ -1171,7 +1171,7 @@ class CulturesGenerator {
 
       if (c.lock) {
         codes.push(c.code as string);
-        centers.add(c.center as number);
+        if (c.center !== undefined) centers.add(this.cells.p[c.center]);
 
         for (const i of this.cells.i) {
           if (this.cells.culture[i] === c.i) cultureIds[i] = newId;

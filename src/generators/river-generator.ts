@@ -86,7 +86,7 @@ class RiverModule {
     const heights = this.alterHeights();
     this.resolveDepressions(heights);
 
-    while (cell) {
+    while (cell >= 0) {
       cells.r[cell] = riverId;
       riverCells.push(cell);
 
@@ -188,6 +188,7 @@ class RiverModule {
 
   generate(allowErosion = true) {
     Math.random = Alea(options.map.seed);
+    this.smallLength = null; // recompute the small/big threshold for this map
     const { cells, features } = pack;
 
     const riversData: { [riverId: number]: number[] } = {};
