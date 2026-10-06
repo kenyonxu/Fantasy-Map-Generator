@@ -1,4 +1,14 @@
-import type { D3DragEvent, D3ZoomEvent } from "d3";
+import type {
+  BaseType,
+  D3DragEvent,
+  D3ZoomEvent,
+  EnterElement,
+  HierarchyLink,
+  HierarchyNode,
+  Selection,
+  SubjectPosition,
+  TreeLayout
+} from "d3";
 import { drag, mean, select, stratify, tree, zoom } from "d3";
 import { closeDialogs } from "@/components/dialog/dialog-helpers";
 import { tip } from "@/components/tooltips";
@@ -16,11 +26,16 @@ type HierarchyElement = {
   [key: string]: unknown;
 };
 
+type TreeNode = HierarchyNode<HierarchyElement>;
+type TreeLink = HierarchyLink<HierarchyElement>;
+/** Tree node as seen by highlight handlers, which also accept DOM events elsewhere */
+type NodeEvent = TreeNode & Event;
+
 type OpenProps = {
   type: string;
   data: HierarchyElement[];
-  onNodeEnter: (d: any) => void;
-  onNodeLeave: (d: any) => void;
+  onNodeEnter: (d: NodeEvent) => void;
+  onNodeLeave: (d: NodeEvent) => void;
   getDescription: (dataElement: HierarchyElement) => string;
   getShape: (dataElement: HierarchyElement) => string | undefined;
 };
@@ -35,7 +50,7 @@ const handleZoom = (event: D3ZoomEvent<SVGSVGElement, unknown>) =>
 const zoomBehavior = zoom<SVGSVGElement, unknown>().scaleExtent([0.2, 1.5]).on("zoom", handleZoom);
 
 // store old root for transitions
-let oldRoot: any;
+let oldRoot: TreeNode | null;
 
 // define svg elements
 const svg = select<SVGSVGElement, unknown>("#hierarchyTree > svg").call(zoomBehavior);
@@ -49,8 +64,8 @@ const dragLine = viewbox.select("path#hierarchyTree_dragLine");
 let dataElements: HierarchyElement[]; // {i, name, type, origins}[], e.g. path.religions
 let model: typeof Cultures | typeof Religions; // owns the origin and code edits
 let validElements: HierarchyElement[]; // not-removed dataElements
-let onNodeEnter: (d: any) => void;
-let onNodeLeave: (d: any) => void;
+let onNodeEnter: (d: NodeEvent) => void;
+let onNodeLeave: (d: NodeEvent) => void;
 let getDescription: (dataElement: HierarchyElement) => string;
 let getShape: (dataElement: HierarchyElement) => string | undefined;
 
@@ -82,7 +97,7 @@ function open(props: OpenProps): void {
 
   const w = treeWidth - MARGINS.left - MARGINS.right;
   const h = treeHeight + 30 - MARGINS.top - MARGINS.bottom;
-  const treeLayout = tree().size([w, h]);
+  const treeLayout = tree<HierarchyElement>().size([w, h]);
 
   const width = minmax(treeWidth, 300, innerWidth * 0.75);
   const height = minmax(treeHeight, 200, innerHeight * 0.75);
@@ -253,7 +268,7 @@ function setOrigins(id: number, origins: number[]): boolean {
   }
 }
 
-function getRoot(): any {
+function getRoot(): TreeNode | null {
   try {
     const root = stratify<HierarchyElement>()
       .id(d => String(d.i))
@@ -267,31 +282,31 @@ function getRoot(): any {
   }
 }
 
-function getLinkKey(d: any): string {
+function getLinkKey(d: TreeLink): string {
   return `${d.source.id}-${d.target.id}`;
 }
 
-function getNodeKey(d: any): number {
-  return d.id;
+function getNodeKey(d: TreeNode): string {
+  return d.id!;
 }
 
-function getLinkPath(d: any): string {
-  const {
-    source: { x: sx, y: sy },
-    target: { x: tx, y: ty }
-  } = d;
+function getLinkPath(d: TreeLink): string {
+  const sx = d.source.x!;
+  const sy = d.source.y!;
+  const tx = d.target.x!;
+  const ty = d.target.y!;
   return `M${sx},${sy} C${sx},${(sy * 3 + ty) / 4} ${tx},${(sy * 2 + ty) / 3} ${tx},${ty}`;
 }
 
-function getSecondaryLinks(root: any): { source: any; target: any }[] {
+function getSecondaryLinks(root: TreeNode): TreeLink[] {
   const nodes = root.descendants();
-  const links: { source: any; target: any }[] = [];
+  const links: TreeLink[] = [];
 
   for (const node of nodes) {
     const origins = node.data.origins;
 
     for (let i = 1; i < origins.length; i++) {
-      const source = nodes.find((n: any) => n.data.i === origins[i]);
+      const source = nodes.find(n => n.data.i === origins[i]);
       if (source) links.push({ source, target: node });
     }
   }
@@ -310,53 +325,61 @@ const shapesMap: Record<string, string> = {
   pentagon: "M0,-14l14,11l-6,14h-16l-6,-14Z"
 };
 
-const getSortIndex = (node: any): number => {
+const getSortIndex = (node: TreeNode): number => {
   const descendants = node.descendants();
-  const secondaryOrigins = descendants.flatMap(({ data }: any) => data.origins.slice(1));
+  const secondaryOrigins = descendants.flatMap(({ data }) => data.origins.slice(1));
 
   if (secondaryOrigins.length === 0) return node.data.i;
   return mean(secondaryOrigins) ?? 0;
 };
 
-function renderTree(root: any, treeLayout: any): void {
-  treeLayout(root.sort((a: any, b: any) => getSortIndex(a) - getSortIndex(b)));
+function renderTree(root: TreeNode, treeLayout: TreeLayout<HierarchyElement>): void {
+  treeLayout(root.sort((a, b) => getSortIndex(a) - getSortIndex(b)));
 
-  primaryLinks.selectAll("path").data(root.links(), getLinkKey).join("path").attr("d", getLinkPath);
-  secondaryLinks.selectAll("path").data(getSecondaryLinks(root), getLinkKey).join("path").attr("d", getLinkPath);
+  primaryLinks
+    .selectAll<SVGPathElement, TreeLink>("path")
+    .data(root.links(), getLinkKey)
+    .join("path")
+    .attr("d", getLinkPath);
+  secondaryLinks
+    .selectAll<SVGPathElement, TreeLink>("path")
+    .data(getSecondaryLinks(root), getLinkKey)
+    .join("path")
+    .attr("d", getLinkPath);
 
   const node = nodes
-    .selectAll<SVGGElement, unknown>("g")
+    .selectAll<SVGGElement, TreeNode>("g")
     .data(root.descendants(), getNodeKey)
     .join("g")
-    .attr("data-id", (d: any) => d.data.i)
+    .attr("data-id", d => d.data.i)
     .attr("stroke", "#333")
-    .attr("transform", (d: any) => `translate(${d.x}, ${d.y})`)
+    .attr("transform", d => `translate(${d.x}, ${d.y})`)
     .on("mouseenter", handleNoteEnter)
     .on("mouseleave", handleNodeExit)
     .on("click", (_event, d) => selectElement(d))
-    .call(drag<SVGGElement, unknown>().on("start", dragToReorigin));
+    .call(drag<SVGGElement, TreeNode>().on("start", dragToReorigin));
 
   node
     .selectAll("path")
-    .data((d: any) => [d])
+    .data(d => [d])
     .join("path")
-    .attr("d", (d: any) => shapesMap[getShape(d.data) ?? "undefined"])
-    .attr("fill", (d: any) => d.data.color || "#ffffff")
-    .attr("stroke-dasharray", (d: any) => (d.data.cells ? "none" : "1"));
+    .attr("d", d => shapesMap[getShape(d.data) ?? "undefined"])
+    .attr("fill", d => d.data.color || "#ffffff")
+    .attr("stroke-dasharray", d => (d.data.cells ? "none" : "1"));
 
   node
     .selectAll("text")
-    .data((d: any) => [d])
+    .data(d => [d])
     .join("text")
-    .text((d: any) => d.data.code || "");
+    .text(d => d.data.code || "");
 }
 
-function mapCoords(newRoot: any, prevRoot: any): void {
+function mapCoords(newRoot: TreeNode, prevRoot: TreeNode): void {
   newRoot.x = prevRoot.x;
   newRoot.y = prevRoot.y;
 
   for (const node of newRoot.descendants()) {
-    const prevNode = prevRoot.descendants().find((n: any) => n.data.i === node.data.i);
+    const prevNode = prevRoot.descendants().find(n => n.data.i === node.data.i);
     if (prevNode) {
       node.x = prevNode.x;
       node.y = prevNode.y;
@@ -367,27 +390,34 @@ function mapCoords(newRoot: any, prevRoot: any): void {
 function updateTree(): void {
   const prevRoot = oldRoot;
   const root = getRoot();
+  if (!root || !prevRoot) return;
   mapCoords(root, prevRoot);
 
   const linksUpdateDuration = 50;
   const moveDuration = 1000;
 
   // old layout: update links at old nodes positions
-  const linkEnter = (enter: any) =>
+  const linkEnter = (enter: Selection<EnterElement, TreeLink, BaseType, unknown>) =>
     enter
       .append("path")
       .attr("d", getLinkPath)
       .attr("opacity", 0)
-      .call((enter: any) => enter.transition().duration(linksUpdateDuration).attr("opacity", 1));
+      .call(enter => enter.transition().duration(linksUpdateDuration).attr("opacity", 1));
 
-  const linkUpdate = (update: any) =>
-    update.call((update: any) => update.transition().duration(linksUpdateDuration).attr("d", getLinkPath));
+  const linkUpdate = (update: Selection<SVGPathElement, TreeLink, BaseType, unknown>) =>
+    update.call(update => update.transition().duration(linksUpdateDuration).attr("d", getLinkPath));
 
-  const linkExit = (exit: any) =>
-    exit.call((exit: any) => exit.transition().duration(linksUpdateDuration).attr("opacity", 0).remove());
+  const linkExit = (exit: Selection<SVGPathElement, TreeLink, BaseType, unknown>) =>
+    exit.call(exit => exit.transition().duration(linksUpdateDuration).attr("opacity", 0).remove());
 
-  primaryLinks.selectAll("path").data(root.links(), getLinkKey).join(linkEnter, linkUpdate, linkExit);
-  secondaryLinks.selectAll("path").data(getSecondaryLinks(root), getLinkKey).join(linkEnter, linkUpdate, linkExit);
+  primaryLinks
+    .selectAll<SVGPathElement, TreeLink>("path")
+    .data(root.links(), getLinkKey)
+    .join(linkEnter, linkUpdate, linkExit);
+  secondaryLinks
+    .selectAll<SVGPathElement, TreeLink>("path")
+    .data(getSecondaryLinks(root), getLinkKey)
+    .join(linkEnter, linkUpdate, linkExit);
 
   // new layout: move nodes with links to new positions
   const treeWidth = root.leaves().length * 50;
@@ -396,11 +426,11 @@ function updateTree(): void {
   const w = treeWidth - MARGINS.left - MARGINS.right;
   const h = treeHeight + 30 - MARGINS.top - MARGINS.bottom;
 
-  const treeLayout = tree().size([w, h]);
-  treeLayout(root.sort((a: any, b: any) => getSortIndex(a) - getSortIndex(b)));
+  const treeLayout = tree<HierarchyElement>().size([w, h]);
+  treeLayout(root.sort((a, b) => getSortIndex(a) - getSortIndex(b)));
 
   primaryLinks
-    .selectAll("path")
+    .selectAll<SVGPathElement, TreeLink>("path")
     .data(root.links(), getLinkKey)
     .transition()
     .duration(moveDuration)
@@ -408,7 +438,7 @@ function updateTree(): void {
     .attr("d", getLinkPath);
 
   secondaryLinks
-    .selectAll("path")
+    .selectAll<SVGPathElement, TreeLink>("path")
     .data(getSecondaryLinks(root), getLinkKey)
     .transition()
     .duration(moveDuration)
@@ -416,17 +446,17 @@ function updateTree(): void {
     .attr("d", getLinkPath);
 
   nodes
-    .selectAll("g")
+    .selectAll<SVGGElement, TreeNode>("g")
     .data(root.descendants(), getNodeKey)
     .transition()
     .delay(linksUpdateDuration)
     .duration(moveDuration)
-    .attr("transform", (d: any) => `translate(${d.x},${d.y})`);
+    .attr("transform", d => `translate(${d.x},${d.y})`);
 }
 
-function selectElement(d: any): void {
+function selectElement(d: TreeNode): void {
   const dataElement: HierarchyElement = d.data;
-  if (d.id === 0) return;
+  if ((d.id as string | number) === 0) return;
 
   const node = nodes.select(`g[data-id="${d.id}"]`);
   nodes.selectAll("g").style("outline", "none");
@@ -474,7 +504,7 @@ function selectElement(d: any): void {
   ensureEl("hierarchyTree_selectedSelectButton").onclick = () => {
     const origins = dataElement.origins;
 
-    const descendants = d.descendants().map((d: any) => d.data.i);
+    const descendants = d.descendants().map(n => n.data.i);
     const selectableElements = validElements.filter(({ i }) => !descendants.includes(i));
 
     const selectableElementsHtml = selectableElements.map(({ i, name, code, color }) => {
@@ -542,30 +572,30 @@ function selectElement(d: any): void {
   };
 }
 
-function handleNoteEnter(this: SVGGElement, _event: MouseEvent, d: any): void {
+function handleNoteEnter(this: SVGGElement, _event: MouseEvent, d: TreeNode): void {
   if (d.depth === 0) return;
 
   this.classList.add("selected");
-  onNodeEnter(d);
+  onNodeEnter(d as NodeEvent);
 
   ensureEl("hierarchyTree_infoLine").innerText = getDescription(d.data);
   tip("Drag to other node to add parent, click to edit");
 }
 
-function handleNodeExit(this: SVGGElement, _event: MouseEvent, d: any): void {
+function handleNodeExit(this: SVGGElement, _event: MouseEvent, d: TreeNode): void {
   this.classList.remove("selected");
-  onNodeLeave(d);
+  onNodeLeave(d as NodeEvent);
 
   ensureEl("hierarchyTree_infoLine").innerHTML = "&#8205;";
   tip("");
 }
 
-function dragToReorigin(event: D3DragEvent<SVGGElement, unknown, unknown>, from: any): void {
-  if (from.id === 0) return;
+function dragToReorigin(event: D3DragEvent<SVGGElement, TreeNode, TreeNode | SubjectPosition>, from: TreeNode): void {
+  if ((from.id as string | number) === 0) return;
 
   dragLine.attr("d", `M${from.x},${from.y}L${from.x},${from.y}`);
 
-  event.on("drag", (dragEvent: D3DragEvent<SVGGElement, unknown, unknown>) => {
+  event.on("drag", (dragEvent: D3DragEvent<SVGGElement, TreeNode, TreeNode | SubjectPosition>) => {
     dragLine.attr("d", `M${from.x},${from.y}L${dragEvent.x},${dragEvent.y}`);
   });
 
@@ -575,10 +605,10 @@ function dragToReorigin(event: D3DragEvent<SVGGElement, unknown, unknown>, from:
     if (!selected.size()) return;
 
     const elementId = from.data.i;
-    const newOrigin = (selected.datum() as any).data.i;
+    const newOrigin = (selected.datum() as TreeNode).data.i;
     if (elementId === newOrigin) return; // dragged to itself
     if (from.data.origins.includes(newOrigin)) return; // already a child of the selected node
-    if (from.descendants().some((node: any) => node.data.i === newOrigin)) return; // cannot be a child of its own child
+    if (from.descendants().some(node => node.data.i === newOrigin)) return; // cannot be a child of its own child
 
     const element = dataElements.find(({ i }) => i === elementId);
     if (!element) return;
