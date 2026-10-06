@@ -1,4 +1,4 @@
-import { pack as packLayout, select, stratify } from "d3";
+import { type HierarchyCircularNode, type HierarchyNode, pack as packLayout, select, stratify } from "d3";
 import { closeDialogs, confirmationDialog, destroyDialog, updateDialog } from "@/components/dialog/dialog-helpers";
 import { applyLineHighlighting } from "@/components/dialog/highlighting";
 import { bindColumnSorting, sortDataByColumns } from "@/components/dialog/sorting";
@@ -493,46 +493,117 @@ function regenerateNames(): void {
   Layers.draw("labels");
 }
 
-function showBurgsChart(): void {
-  // build hierarchy tree
-  const states = pack.states.map(s => {
-    const color = s.color ? s.color : "#ccc";
-    const name = s.fullName ? s.fullName : s.name;
-    return { id: s.i, state: s.i ? 0 : null, color, name };
-  });
+type ChartGrouping = "states" | "cultures" | "parent" | "provinces";
 
-  const burgs = pack.burgs
-    .filter(b => b.i && !b.removed)
-    .map(b => {
-      const id = b.i + states.length - 1;
-      const population = b.population;
-      const capital = b.capital;
-      const province = pack.cells.province[b.cell];
-      const parent = province ? province + states.length - 1 : b.state;
-      return {
-        id,
-        i: b.i,
-        state: b.state,
-        culture: b.culture,
-        province,
-        parent,
-        name: b.name,
-        population,
-        capital,
-        x: b.x,
-        y: b.y
-      };
+// Bubble chart nodes: group nodes (state / culture / province) plus burg leaves.
+// String ids ("state-3", "province-5", "burg-17") keep the hierarchy collision-free
+// without the old numeric id remapping, which leaned on sentinel entries at index 0.
+type ChartDatum =
+  | { kind: "state"; id: string; parentId: string | null; color: string; name: string }
+  | { kind: "culture"; id: string; parentId: string | null; color: string; name: string }
+  | { kind: "province"; id: string; parentId: string | null; color: string; name: string }
+  | {
+      kind: "burg";
+      id: string;
+      parentId: string;
+      name: string;
+      population: number;
+      x: number;
+      y: number;
+      i: number;
+    };
+
+function buildChartData(groupBy: ChartGrouping): ChartDatum[] {
+  const data: ChartDatum[] = [];
+  if (groupBy === "states" || groupBy === "parent") {
+    for (const s of pack.states) {
+      data.push({
+        kind: "state",
+        id: `state-${s.i}`,
+        parentId: s.i ? "state-0" : null,
+        color: s.color || "#ccc",
+        name: s.fullName || s.name
+      });
+    }
+  }
+  if (groupBy === "cultures") {
+    for (const c of pack.cultures) {
+      data.push({
+        kind: "culture",
+        id: `culture-${c.i}`,
+        parentId: c.i ? "culture-0" : null,
+        color: c.color || "#ccc",
+        name: c.name
+      });
+    }
+  }
+  if (groupBy === "parent") {
+    for (const p of pack.provinces) {
+      if (!p.i || p.removed) continue;
+      data.push({
+        kind: "province",
+        id: `province-${p.i}`,
+        parentId: `state-${p.state}`,
+        color: p.color,
+        name: p.fullName
+      });
+    }
+  } else if (groupBy === "provinces") {
+    for (const p of pack.provinces) {
+      data.push({
+        kind: "province",
+        id: `province-${p.i || 0}`,
+        parentId: p.i ? "province-0" : null,
+        color: p.color || "#ccc",
+        name: p.fullName || p.name
+      });
+    }
+  }
+
+  for (const b of pack.burgs) {
+    if (!b.i || b.removed) continue;
+    const province = pack.cells.province[b.cell];
+    let parentId: string;
+    if (groupBy === "states") parentId = `state-${b.state}`;
+    else if (groupBy === "cultures") parentId = `culture-${b.culture}`;
+    else if (groupBy === "parent" && !province) parentId = `state-${b.state}`;
+    else parentId = `province-${province}`;
+    data.push({
+      kind: "burg",
+      id: `burg-${b.i}`,
+      parentId,
+      name: b.name!,
+      population: b.population!,
+      x: b.x,
+      y: b.y,
+      i: b.i
     });
-  const data: any[] = (states as any[]).concat(burgs);
+  }
+  return data;
+}
+
+function buildChartHierarchy(data: ChartDatum[]): HierarchyNode<ChartDatum> {
+  return stratify<ChartDatum>()
+    .id(d => d.id)
+    .parentId(d => d.parentId)(data)
+    .sum(d => (d.kind === "burg" ? d.population : 0))
+    .sort((a, b) => b.value! - a.value!);
+}
+
+/** a leaf is always a burg nested under a group node; its fill is the group color */
+function groupColor(d: HierarchyCircularNode<ChartDatum>): string | null {
+  const parent = d.parent!.data;
+  return parent.kind === "burg" ? null : parent.color;
+}
+
+function showBurgsChart(): void {
+  const data = buildChartData("states");
   if (data.length < 2) {
     tip("No burgs to show", false, "error");
     return;
   }
 
-  const root = (stratify() as any)
-    .parentId((d: any) => d.state)(data)
-    .sum((d: any) => d.population)
-    .sort((a: any, b: any) => b.value - a.value);
+  const root = buildChartHierarchy(data);
 
   const uiSize = ensureEl<HTMLInputElement>("uiSize").valueAsNumber;
   const width = 150 + 200 * uiSize;
@@ -540,7 +611,7 @@ function showBurgsChart(): void {
   const margin = { top: 0, right: -50, bottom: -10, left: -50 };
   const w = width - margin.left - margin.right;
   const h = height - margin.top - margin.bottom;
-  const treeLayout = packLayout().size([w, h]).padding(3);
+  const treeLayout = packLayout<ChartDatum>().size([w, h]).padding(3);
 
   // prepare svg
   alertMessage.innerHTML = /* html */ `<select id="burgsTreeType" style="display:block; margin-left:13px; font-size:11px">
@@ -559,112 +630,49 @@ function showBurgsChart(): void {
   const graph = svg.append("g").attr("transform", `translate(-50, -10)`);
   ensureEl("burgsTreeType").addEventListener("change", updateChart);
 
-  treeLayout(root);
-
   const node = graph
     .selectAll("circle")
-    .data(root.leaves())
+    .data(treeLayout(root).leaves())
     .join("circle")
-    .attr("data-id", (d: any) => d.data.i)
-    .attr("r", (d: any) => d.r)
-    .attr("fill", (d: any) => d.parent.data.color)
-    .attr("cx", (d: any) => d.x)
-    .attr("cy", (d: any) => d.y)
-    .on("mouseenter", (event: any, d: any) => showInfo(event, d))
-    .on("mouseleave", (event: any) => hideInfo(event))
-    .on("click", (_event: any, d: any) => zoomTo(d.data.x, d.data.y, 8, 2000));
-
-  function showInfo(ev: any, d: any): void {
-    select(ev.target).transition().duration(1500).attr("stroke", "#c13119");
-    const name = d.data.name;
-    const parent = d.parent.data.name;
-    const population = si(
-      d.value * options.map.units.population.scale * options.map.units.population.urbanization.rate
-    );
-
-    ensureEl("burgsInfo").innerHTML =
-      /* html */ `${escapeHtml(name)}. ${escapeHtml(parent)}. Population: ${population}`;
-    burgHighlightOn(ev);
-    tip("Click to zoom into view");
-  }
-
-  function hideInfo(ev: any): void {
-    burgHighlightOff();
-    ensureEl("burgsInfo").innerHTML = "&#8205;";
-    select(ev.target).transition().attr("stroke", null);
-    tip("");
-  }
-
-  function updateChart(this: HTMLSelectElement): void {
-    const getStatesData = () =>
-      pack.states.map(s => {
-        const color = s.color ? s.color : "#ccc";
-        const name = s.fullName ? s.fullName : s.name;
-        return { id: s.i, state: s.i ? 0 : null, color, name };
-      });
-
-    const getCulturesData = () =>
-      pack.cultures.map(c => {
-        const color = c.color ? c.color : "#ccc";
-        return { id: c.i, culture: c.i ? 0 : null, color, name: c.name };
-      });
-
-    const getParentData = () => {
-      const states = pack.states.map(s => {
-        const color = s.color ? s.color : "#ccc";
-        const name = s.fullName ? s.fullName : s.name;
-        return { id: s.i, parent: s.i ? 0 : null, color, name };
-      });
-      const provinces = pack.provinces
-        .filter(p => p.i && !p.removed)
-        .map(p => {
-          return { id: p.i + states.length - 1, parent: p.state, color: p.color, name: p.fullName };
-        });
-      return (states as any[]).concat(provinces);
-    };
-
-    const getProvincesData = () =>
-      pack.provinces.map(p => {
-        const color = p.color ? p.color : "#ccc";
-        const name = p.fullName ? p.fullName : p.name;
-        return { id: p.i ? p.i : 0, province: p.i ? 0 : null, color, name };
-      });
-
-    const value = (d: any) => {
-      if (this.value === "states") return d.state;
-      if (this.value === "cultures") return d.culture;
-      if (this.value === "parent") return d.parent;
-      if (this.value === "provinces") return d.province;
-    };
-
-    const mapping: Record<string, () => any[]> = {
-      states: getStatesData,
-      cultures: getCulturesData,
-      parent: getParentData,
-      provinces: getProvincesData
-    };
-
-    const base = mapping[this.value]();
-    burgs.forEach(b => {
-      b.id = b.i + base.length - 1;
+    .attr("data-id", d => (d.data.kind === "burg" ? d.data.i : null))
+    .attr("r", d => d.r)
+    .attr("fill", groupColor)
+    .attr("cx", d => d.x)
+    .attr("cy", d => d.y)
+    .on("mouseenter", (event, d) => {
+      select(event.target).transition().duration(1500).attr("stroke", "#c13119");
+      const population = si(
+        d.value! * options.map.units.population.scale * options.map.units.population.urbanization.rate
+      );
+      ensureEl("burgsInfo").innerHTML =
+        /* html */ `${escapeHtml(d.data.name)}. ${escapeHtml(d.parent!.data.name)}. Population: ${population}`;
+      burgHighlightOn(event);
+      tip("Click to zoom into view");
+    })
+    .on("mouseleave", event => {
+      burgHighlightOff();
+      ensureEl("burgsInfo").innerHTML = "&#8205;";
+      select(event.target).transition().attr("stroke", null);
+      tip("");
+    })
+    .on("click", (_event, d) => {
+      if (d.data.kind === "burg") zoomTo(d.data.x, d.data.y, 8, 2000);
     });
 
-    const data: any[] = base.concat(burgs);
-
-    const root = (stratify() as any)
-      .parentId((d: any) => value(d))(data)
-      .sum((d: any) => d.population)
-      .sort((a: any, b: any) => b.value - a.value);
+  function updateChart(this: HTMLSelectElement): void {
+    // the select above offers exactly the ChartGrouping values
+    const grouping = this.value as ChartGrouping;
+    const root = buildChartHierarchy(buildChartData(grouping));
 
     node
-      .data((treeLayout(root) as any).leaves())
+      .data(treeLayout(root).leaves())
       .transition()
       .duration(2000)
-      .attr("data-id", (d: any) => d.data.i)
-      .attr("fill", (d: any) => d.parent.data.color)
-      .attr("cx", (d: any) => d.x)
-      .attr("cy", (d: any) => d.y)
-      .attr("r", (d: any) => d.r);
+      .attr("data-id", d => (d.data.kind === "burg" ? d.data.i : null))
+      .attr("fill", groupColor)
+      .attr("cx", d => d.x)
+      .attr("cy", d => d.y)
+      .attr("r", d => d.r);
   }
 
   $("#alert").dialog({
