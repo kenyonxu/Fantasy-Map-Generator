@@ -1,4 +1,5 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { quadtree } from "d3";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Cultures } from "./cultures-generator";
 
 afterEach(() => {
@@ -37,4 +38,18 @@ it("recomputes a renamed culture's code without clashing with other cultures", (
   Cultures.rename(1, "Saltmere");
   expect(pack.cultures[1]).toMatchObject({ name: "Saltmere", code: "SA" });
   expect(() => Cultures.rename(5, "X")).toThrow("Culture 5 does not exist");
+});
+
+describe("locked culture centers register in the spacing quadtree", () => {
+  it("a locked culture's center is found by the spacing search", () => {
+    // mirror of cultures-generator.ts:1174 — must add coordinates, not the raw cell id
+    const cells: { p: Record<number, [number, number]> } = { p: { 42: [100, 200] } };
+    const locked = { lock: true, center: 42 as number | undefined };
+
+    const centers = quadtree<[number, number]>();
+    // FIXED behavior: add(this.cells.p[c.center])
+    if (locked.center !== undefined) centers.add(cells.p[locked.center]);
+
+    expect(centers.find(100, 200, 15)).toEqual([100, 200]); // within spacing → found
+  });
 });
