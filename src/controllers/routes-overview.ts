@@ -17,7 +17,7 @@ import { type Route, UNNAMED_ROUTE } from "@/generators/routes-generator";
 import { getRouteBox } from "@/renderers/draw-routes";
 import { highlightArea } from "@/renderers/overlays/highlight";
 import { downloadFile, getFileName } from "@/utils";
-import { ensureEl, rn } from "../utils";
+import { ensureEl, escapeHtml, rn, toCsvField } from "../utils";
 
 const dialogId = "routesOverview" as const;
 const position = { my: "right top", at: "right-10 top+10", of: "svg", collision: "fit" };
@@ -160,13 +160,13 @@ function renderRoutesPage(view: TableView<Route>): void {
     lines += /* html */ `<div
         class="states"
         data-id="${route.i}"
-        data-name="${route.name}"
-        data-group="${route.group}"
+        data-name="${escapeHtml(route.name ?? "")}"
+        data-group="${escapeHtml(route.group)}"
         data-length="${route.length}"
       >
         <span data-tip="Locate the route" class="icon-target" data-col="locate"></span>
-        <div data-tip="Route name" data-col="name">${route.name}</div>
-        <div data-tip="Route group" data-col="group">${route.group}</div>
+        <div data-tip="Route name" data-col="name">${escapeHtml(route.name ?? "")}</div>
+        <div data-tip="Route group" data-col="group">${escapeHtml(route.group)}</div>
         <div data-tip="Route length" data-col="length">${length}</div>
         <span data-col="edit" data-tip="Edit route" class="icon-pencil"></span>
         <span data-col="lock" class="locks pointer ${
@@ -227,7 +227,7 @@ function downloadRoutesData(): void {
   const exported = routesTable.view().all;
   exported.forEach((route: Route) => {
     const length = `${rn((route.length || 0) * options.map.units.distance.scale)} ${options.map.units.distance.unit}`;
-    data += `${[route.i, route.name, route.group, length].join(",")}\n`;
+    data += `${[route.i, toCsvField(route.name ?? ""), toCsvField(route.group), length].join(",")}\n`;
   });
 
   const name = `${getFileName("Routes")}.csv`;

@@ -17,7 +17,7 @@ import type { River } from "@/generators/river-generator";
 import { getRiverBox, toggleBasinHighlight } from "@/renderers/draw-rivers";
 import { highlightArea } from "@/renderers/overlays/highlight";
 import { downloadFile, getFileName } from "@/utils";
-import { ensureEl, rn } from "../utils";
+import { ensureEl, escapeHtml, rn, toCsvField } from "../utils";
 
 const dialogId = "riversOverview" as const;
 const position = { my: "right top", at: "right-10 top+10", of: "svg", collision: "fit" };
@@ -198,20 +198,20 @@ function renderRiversPage(view: TableView<River>): void {
     lines += /* html */ `<div
         class="states"
         data-id=${r.i}
-        data-name="${r.name}"
-        data-type="${r.type}"
+        data-name="${escapeHtml(r.name)}"
+        data-type="${escapeHtml(r.type)}"
         data-discharge="${r.discharge}"
         data-length="${r.length}"
         data-width="${r.width}"
-        data-basin="${basin}"
+        data-basin="${escapeHtml(basin ?? "")}"
       >
         <span data-tip="Locate the river" class="icon-target" data-col="locate"></span>
-        <div data-tip="River name" data-col="name">${r.name}</div>
-        <div data-tip="River type name" data-col="type">${r.type}</div>
+        <div data-tip="River name" data-col="name">${escapeHtml(r.name)}</div>
+        <div data-tip="River type name" data-col="type">${escapeHtml(r.type)}</div>
         <div data-tip="River discharge (flux power)" data-col="discharge">${discharge}</div>
         <div data-tip="River length from source to mouth" data-col="length">${length}</div>
         <div data-tip="River mouth width" data-col="width">${width}</div>
-        <input data-tip="River basin (name of the main stem)" class="stateName" value="${basin}" disabled data-col="basin" />
+        <input data-tip="River basin (name of the main stem)" class="stateName" value="${escapeHtml(basin ?? "")}" disabled data-col="basin" />
         <span data-col="edit" data-tip="Edit river" class="icon-pencil"></span>
         <span data-col="remove" data-tip="Remove river" class="icon-trash-empty"></span>
       </div>`;
@@ -270,7 +270,7 @@ function downloadRiversData(): void {
     const length = `${rn(r.length * options.map.units.distance.scale)} ${options.map.units.distance.unit}`;
     const width = `${rn(r.width * options.map.units.distance.scale, 3)} ${options.map.units.distance.unit}`;
     const basin = riversById.get(r.basin)?.name || "";
-    data += `${[r.i, r.name, r.type, discharge, length, width, basin].join(",")}\n`;
+    data += `${[r.i, toCsvField(r.name), toCsvField(r.type), discharge, length, width, toCsvField(basin ?? "")].join(",")}\n`;
   });
 
   const name = `${getFileName("Rivers")}.csv`;

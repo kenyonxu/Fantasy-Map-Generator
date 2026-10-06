@@ -19,7 +19,7 @@ import type { State } from "@/generators/states-generator";
 import { drawRegiment } from "@/renderers/draw-military";
 import { downloadFile, getFileName, getLatitude, getLongitude } from "@/utils";
 import type { Regiment } from "../generators/military-generator";
-import { capitalize, ensureEl, findEl, getPointer, last, si } from "../utils";
+import { capitalize, ensureEl, escapeHtml, findEl, getPointer, last, si, toCsvField } from "../utils";
 
 const dialogId = "regimentsOverview" as const;
 const position = { my: "right top", at: "right-10 top+10", of: "svg", collision: "fit" };
@@ -188,10 +188,10 @@ function renderRegimentsPage(view: TableView<RegimentRow>): void {
       const emblem = `<span data-col="emblem" data-tip="Regiment's emblem">${Icons.html(regiment.icon ?? "")}</span>`;
 
       return /* html */ `<div class="states" data-id="${regiment.i}" data-s="${state.i}">
-        <fill-box data-col="color" data-tip="${state.fullName}" fill="${state.color}" disabled></fill-box>
-        <input data-col="state" data-tip="${state.fullName}" value="${state.name}" readonly />
+        <fill-box data-col="color" data-tip="${escapeHtml(state.fullName ?? "")}" fill="${state.color}" disabled></fill-box>
+        <input data-col="state" data-tip="${escapeHtml(state.fullName ?? "")}" value="${escapeHtml(state.name)}" readonly />
         ${emblem}
-        <input data-col="name" data-tip="Regiment's name" value="${regiment.name}" readonly />
+        <input data-col="name" data-tip="Regiment's name" value="${escapeHtml(regiment.name)}" readonly />
         ${unitCells}
         <div data-col="total" data-tip="Total military personnel (not considering crew)" style="font-weight:bold">${percentage ? percent(regiment.a, total) : regiment.a}</div>
         <span data-col="edit" data-tip="Edit regiment" data-edit-regiment="regiment${state.i}-${regiment.i}" class="icon-pencil pointer"></span>
@@ -320,10 +320,10 @@ function downloadRegimentsData(): void {
     if (!s.i || s.removed || !s.military?.length) continue;
 
     for (const r of s.military) {
-      data += `${s.name},`;
+      data += `${toCsvField(s.name)},`;
       data += `${r.i},`;
-      data += `${Icons.glyphText(r.icon ?? "") ?? r.icon},`;
-      data += `${r.name},`;
+      data += `${toCsvField(Icons.glyphText(r.icon ?? "") ?? r.icon)},`;
+      data += `${toCsvField(r.name)},`;
       data += `${units.map(unit => r.u[unit]).join(",")},`;
 
       data += `${r.x},`;
