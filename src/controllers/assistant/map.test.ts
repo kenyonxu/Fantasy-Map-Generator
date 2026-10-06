@@ -18,9 +18,39 @@ vi.mock("./proposals", () => ({ Proposals: { prepare: async () => {}, propose } 
 vi.mock("@/services/io/emblem-image", () => ({ emblemPng: async () => "data:image/png;base64,QUJD" }));
 const regionImage = vi.hoisted(() => vi.fn(async () => "data:image/jpeg;base64,SlBH"));
 vi.mock("@/services/io/export", () => ({ ExportMap: { getRegionImage: regionImage } }));
+const consentDialog = vi.hoisted(() => ({
+  answer: true,
+  asks: 0,
+  options: null as null | { title?: string; message?: string }
+}));
+vi.mock("@/components/dialog/dialog-helpers", async importOriginal => ({
+  ...(await importOriginal<typeof import("@/components/dialog/dialog-helpers")>()),
+  confirmationDialog: (options: {
+    title?: string;
+    message?: string;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+  }) => {
+    consentDialog.asks++;
+    consentDialog.options = options;
+    (consentDialog.answer ? options.onConfirm : options.onCancel)?.();
+  }
+}));
+const scriptRuns = vi.hoisted(() => ({ count: 0 }));
+vi.mock("@/services/assistant/provider/runtime", async importOriginal => {
+  const actual = await importOriginal<typeof import("@/services/assistant/provider/runtime")>();
+  return {
+    ...actual,
+    runScript: async (code: string, helpers?: Record<string, unknown>) => {
+      scriptRuns.count++;
+      return actual.runScript(code, helpers);
+    }
+  };
+});
 
 import { viewport } from "@/components/viewport";
 import type { Chat, Proposal } from "@/services/assistant/chats";
+import { resetScriptConsent } from "@/services/assistant/script-consent";
 import { AssistantMap } from "./map";
 
 const mapOptions = {
@@ -63,6 +93,11 @@ beforeEach(() => {
   notesEditor.open = { id: "burg:1", name: "Old", legend: "<p>Old</p>" };
   notesEditor.selection = null;
   propose.mockReset();
+  consentDialog.answer = true;
+  consentDialog.asks = 0;
+  consentDialog.options = null;
+  scriptRuns.count = 0;
+  resetScriptConsent();
   vi.stubGlobal("mapHistory", [{ created: 42 }]);
   vi.stubGlobal("options", mapOptions);
   vi.stubGlobal("pack", { cells: { i: [0] }, states: [], burgs: [0, { i: 1, name: "Vel" }, { i: 2, removed: true }] });
@@ -238,6 +273,32 @@ it("ends a read_map result with the keys of the entities it names, in order of m
 it("adds no keys to a result that names no entity", async () => {
   const result = await mapTool("read_map").handle({ code: "return 42" });
   expect(result.content).toBe("42\n");
+});
+
+it("asks before running a map script, and does not run it when declined", async () => {
+  consentDialog.answer = false;
+  const declined = await mapTool("read_map").handle({ code: "return 'secret'" });
+  expect(declined.isError).toBe(true);
+  expect(declined.content).toContain("declined");
+  expect(scriptRuns.count).toBe(0);
+  expect(declined.item).toMatchObject({ kind: "step", code: "return 'secret'" });
+});
+
+it("warns that a map script has the page's full permissions", async () => {
+  await mapTool("read_map").handle({ code: "return 1" });
+  expect(consentDialog.options?.title).toBe("Run AI-generated script?");
+  expect(consentDialog.options?.message).toContain("full permissions");
+  expect(consentDialog.options?.message).toContain("API keys");
+});
+
+it("runs scripts after consent without asking again in the same session", async () => {
+  const first = await mapTool("read_map").handle({ code: "return 1" });
+  expect(first.isError).toBeFalsy();
+  expect(scriptRuns.count).toBe(1);
+  const second = await mapTool("read_map").handle({ code: "return 2" });
+  expect(consentDialog.asks).toBe(1);
+  expect(scriptRuns.count).toBe(2);
+  expect(second.content).toContain("2");
 });
 
 it("shows a card for a state only", async () => {

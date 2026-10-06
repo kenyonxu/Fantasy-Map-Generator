@@ -1,5 +1,6 @@
 import type { Message, Usage } from "./provider/providers";
 import type { RunResult } from "./provider/runtime";
+import { resetScriptConsent } from "./script-consent";
 
 /** Who asks: a Guest or Member of the Azgaar server, or the user's own key */
 export type Tier = "guest" | "member" | "key";
@@ -114,6 +115,7 @@ export function select(id: string): Chat | undefined {
 }
 
 export function create(tier: Tier, mapId: number, mapName: string): Chat {
+  resetScriptConsent(); // a new session asks before its first AI-generated script again
   const chat: Chat = {
     id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     title: "New chat",
