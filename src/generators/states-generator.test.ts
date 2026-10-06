@@ -494,9 +494,16 @@ describe("States.regenerate determinism", () => {
         f: new Array(n).fill(0),
         pop: new Array(n).fill(1)
       },
-      biomes: [{ i: 0, cost: 0 }, { i: 1, cost: 10 }],
+      biomes: [
+        { i: 0, cost: 0 },
+        { i: 1, cost: 10 }
+      ],
       features: [{ i: 0, type: "ocean", cells: 0 }],
-      cultures: [{ i: 0, type: "Generic" }, { i: 1, type: "Generic", center: 0 }, { i: 2, type: "Generic", center: 11 }],
+      cultures: [
+        { i: 0, type: "Generic" },
+        { i: 1, type: "Generic", center: 0 },
+        { i: 2, type: "Generic", center: 11 }
+      ],
       burgs: [
         0,
         { i: 1, cell: 0, x: 0, y: 0, name: "Westport", population: 10, culture: 1, capital: 1, state: 1 },
