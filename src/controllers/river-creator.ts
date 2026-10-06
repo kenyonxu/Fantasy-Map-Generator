@@ -64,7 +64,7 @@ function onBodyClick(ev: Event): void {
   else if (cl.contains("icon-trash-empty")) removeCell(cell);
 }
 
-function onCellClick(this: any, event: any): void {
+function onCellClick(this: SVGElement, event: PointerEvent): void {
   const cell = Pack.findCell(...(getPointer(event, this) as [number, number]))!;
 
   if (creatorCells.includes(cell)) removeCell(cell);

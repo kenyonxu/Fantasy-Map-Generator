@@ -4,6 +4,7 @@ import type { Emblem } from "@/types/emblems";
 import { requireColor } from "@/utils/colorUtils";
 import { requireCode, requireName, requireOneOf, requireOrigins } from "@/utils/validationUtils";
 import { abbreviate, biased, getColors, getRandomColor, minmax, P, rand, rn, rw } from "../utils";
+import { priorityFlood } from "./flood";
 import { Population } from "./population-generator";
 
 /** The named culture sets the user picks from: how many cultures each holds and how often it is rolled */
@@ -21,6 +22,9 @@ export const CULTURE_SETS: Record<string, { name: string; max: number; probabili
 declare global {
   var Cultures: CulturesGenerator;
 }
+
+/** Extreme-climate outcome Cultures.generate() reports instead of driving the DOM */
+export type CulturesClimateReport = { warning?: string; error?: string };
 
 export interface Culture {
   name: string;
@@ -1032,7 +1036,7 @@ class CulturesGenerator {
     ];
   }
 
-  generate() {
+  generate(): CulturesClimateReport {
     options.map.cultures.set = options.generation.cultures.set;
     this.cells = pack.cells;
     const cultureIds = new Uint16Array(this.cells.i.length); // cell cultures
@@ -1041,6 +1045,7 @@ class CulturesGenerator {
     const culturesInSetNumber = CULTURE_SETS[options.map.cultures.set]?.max ?? 0;
     let count = Math.min(culturesInputNumber, culturesInSetNumber);
     const populated = this.cells.i.filter((i: number) => this.cells.s[i]); // populated cells
+    let warning: string | undefined;
 
     if (populated.length < count * 25) {
       count = Math.floor(populated.length / 50);
@@ -1057,35 +1062,16 @@ class CulturesGenerator {
         ];
         this.cells.culture = cultureIds;
 
-        alertMessage.innerHTML = /* html */ `The climate is harsh and people cannot live in this world.<br />
-          No cultures, states and burgs will be created.<br />
-          Please consider changing climate settings in the World Configurator`;
-
-        $("#alert").dialog({
-          resizable: false,
-          title: "Extreme climate warning",
-          buttons: {
-            Ok: function () {
-              $(this).dialog("close");
-            }
-          }
-        });
-        return;
-      } else {
-        WARN && console.warn(`Not enough populated cells (${populated.length}). Will generate only ${count} cultures`);
-        alertMessage.innerHTML = /* html */ ` There are only ${populated.length} populated cells and it's insufficient livable area.<br />
-          Only ${count} out of ${options.generation.cultures.limit} requested cultures will be generated.<br />
-          Please consider changing climate settings in the World Configurator`;
-        $("#alert").dialog({
-          resizable: false,
-          title: "Extreme climate warning",
-          buttons: {
-            Ok: function () {
-              $(this).dialog("close");
-            }
-          }
-        });
+        return {
+          warning: `The climate is harsh and people cannot live in this world.<br />
+            No cultures, states and burgs will be created.<br />
+            Please consider changing climate settings in the World Configurator`
+        };
       }
+      WARN && console.warn(`Not enough populated cells (${populated.length}). Will generate only ${count} cultures`);
+      warning = `There are only ${populated.length} populated cells and it's insufficient livable area.<br />
+        Only ${count} out of ${options.generation.cultures.limit} requested cultures will be generated.<br />
+        Please consider changing climate settings in the World Configurator`;
     }
 
     const selectCultures = (culturesNumber: number): Culture[] => {
@@ -1220,6 +1206,8 @@ class CulturesGenerator {
     cultures.forEach((c: Culture) => {
       c.base = c.base % Names.nameBases.length;
     });
+
+    return warning ? { warning } : {};
   }
 
   /** Found a culture centered at a map point; it takes land when cultures are recalculated. Returns its id */
@@ -1269,9 +1257,6 @@ class CulturesGenerator {
   expand() {
     const { cells, cultures } = pack;
 
-    const queue = new FlatQueue();
-    const cost: number[] = [];
-
     const growthRate = options.generation.cultures.growthRate;
     const maxExpansionCost = cells.i.length * 0.6 * growthRate; // limit cost for culture growth
 
@@ -1287,10 +1272,9 @@ class CulturesGenerator {
       cells.culture = new Uint16Array(cells.i.length);
     }
 
-    for (const culture of cultures) {
-      if (!culture.i || culture.removed || culture.lock) continue;
-      queue.push({ cellId: culture.center, cultureId: culture.i, priority: 0 }, 0);
-    }
+    const seeds = cultures
+      .filter(culture => culture.i && !culture.removed && !culture.lock)
+      .map(culture => ({ cell: culture.center!, ctx: culture.i }));
 
     const getBiomeCost = (c: number, biome: number, type: string) => {
       if (cells.biome[cultures[c].center as number] === biome) return 10; // tiny penalty for native biome
@@ -1327,17 +1311,17 @@ class CulturesGenerator {
       return 0;
     };
 
-    while (queue.length) {
-      const { cellId, priority, cultureId } = queue.pop();
-      const { type, expansionism } = cultures[cultureId];
-      const sourceBiome = cells.biome[cellId];
-
-      cells.c[cellId].forEach(neibCellId => {
+    priorityFlood<number>({
+      seeds,
+      neighbors: cellId => cells.c[cellId],
+      edgeCost: (cellId, neibCellId, cultureId, priority) => {
         if (hasLocked) {
           const neibCultureId = cells.culture[neibCellId];
-          if (neibCultureId && cultures[neibCultureId].lock) return; // do not overwrite cell of locked culture
+          if (neibCultureId && cultures[neibCultureId].lock) return null; // do not overwrite cell of locked culture
         }
 
+        const { type, expansionism } = cultures[cultureId];
+        const sourceBiome = cells.biome[cellId];
         const targetBiome = cells.biome[neibCellId];
         const biomeCost = getBiomeCost(cultureId, targetBiome, type as string);
         const biomeChangeCost = sourceBiome === targetBiome ? 0 : 20; // penalty on biome change
@@ -1345,17 +1329,13 @@ class CulturesGenerator {
         const riverCost = getRiverCost(cells.r[neibCellId], neibCellId, type as string);
         const typeCost = getTypeCost(cells.t[neibCellId], type as string);
         const cellCost = (biomeCost + biomeChangeCost + heightCost + riverCost + typeCost) / (expansionism as number);
-        const totalCost = priority + cellCost;
-
-        if (totalCost > maxExpansionCost) return;
-
-        if (!cost[neibCellId] || totalCost < cost[neibCellId]) {
-          if (cells.pop[neibCellId] > 0) cells.culture[neibCellId] = cultureId; // assign culture to populated cell
-          cost[neibCellId] = totalCost;
-          queue.push({ cellId: neibCellId, cultureId, priority: totalCost }, totalCost);
-        }
-      });
-    }
+        return priority + cellCost;
+      },
+      assign: (neibCellId, cultureId) => {
+        if (cells.pop[neibCellId] > 0) cells.culture[neibCellId] = cultureId; // assign culture to populated cell
+      },
+      maxCost: maxExpansionCost
+    });
   }
 
   /** Rename a culture; its code is recomputed */
@@ -1492,8 +1472,8 @@ class CulturesGenerator {
     return culture;
   }
 
-  regenerate(): void {
-    this.generate();
+  regenerate(): { warning?: string; error?: string } {
+    const result = this.generate();
     this.expand();
 
     pack.states = pack.states.map(state =>
@@ -1505,6 +1485,8 @@ class CulturesGenerator {
     pack.religions = pack.religions.map(religion =>
       !religion.i || religion.removed ? religion : { ...religion, culture: pack.cells.culture[religion.center] }
     );
+
+    return result;
   }
 }
 

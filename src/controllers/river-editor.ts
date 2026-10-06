@@ -1,4 +1,4 @@
-import { drag, type Selection, select } from "d3";
+import { type D3DragEvent, drag, type Selection, select } from "d3";
 import { closeDialogs, destroyDialog, noteButton } from "@/components/dialog/dialog-helpers";
 import { Layers } from "@/components/layers";
 import { clearMainTip, tip } from "@/components/tooltips";
@@ -191,7 +191,7 @@ function drawCells(cells: number[]): void {
     .attr("points", (d: number) => String(Pack.getPolygon(d)));
 }
 
-function dragControlPoint(event: any): void {
+function dragControlPoint(event: D3DragEvent<SVGCircleElement, Point, unknown>): void {
   const { r, fl } = pack.cells;
   const river = getRiver();
 
@@ -200,7 +200,7 @@ function dragControlPoint(event: any): void {
 
   let movedToCell: number | null = null;
 
-  event.on("drag", function (this: any, dragEvent: any) {
+  event.on("drag", function (this: any, dragEvent: D3DragEvent<SVGCircleElement, Point, unknown>) {
     const { x, y } = dragEvent;
     const currentCell = Pack.findCell(x, y);
 
@@ -238,7 +238,7 @@ function redrawRiver(): void {
   if (findEl("elevationProfile")) showRiverElevationProfile();
 }
 
-function addControlPoint(this: any, event: any): void {
+function addControlPoint(this: SVGElement, event: PointerEvent): void {
   const [x, y] = getPointer(event, this);
   const point: Point = [rn(x, 1), rn(y, 1)];
 

@@ -4,14 +4,11 @@ import { pointer } from "d3";
  * @param id - The ID of the element to retrieve
  * @typeParam T - The type of the element to retrieve, HTMLElement unless a SVG element is requested
  * @returns The element with the specified ID, cast to the specified type
+ * @throws When no element with the given ID exists; use {@link findEl} for nullable lookups
  */
 export const ensureEl = <T extends Element = HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
-  if (!el) {
-    // TODO: throw an error instead of logging it, and handle it properly in the caller
-    ERROR && console.error(`Element with id "${id}" not found.`);
-    // TOBE: throw new Error(`Element with id "${id}" not found.`);
-  }
+  if (!el) throw new Error(`Element with id "${id}" not found.`);
   return el as unknown as T;
 };
 

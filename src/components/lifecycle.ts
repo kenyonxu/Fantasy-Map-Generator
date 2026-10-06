@@ -1,6 +1,11 @@
 // The app and map lifecycle: start the app, erase what is on screen, generate a new world, put it back
 import { applyGraphSize, fitMapToScreen } from "@/components/canvas";
-import { closeDialogs, confirmationDialog, initDialogPositionPersistence } from "@/components/dialog/dialog-helpers";
+import {
+  closeDialogs,
+  confirmationDialog,
+  initDialogPositionPersistence,
+  presentCulturesClimate
+} from "@/components/dialog/dialog-helpers";
 import { Icons } from "@/components/icons";
 import { Layers } from "@/components/layers";
 import { hideLoading, showLoading } from "@/components/loading";
@@ -15,7 +20,7 @@ import { setViewportSize } from "@/components/viewport";
 import { invokeActiveZooming, resetZoom } from "@/components/zoom";
 import { Controllers } from "@/controllers";
 import { getPointsNumber } from "@/data/graph-density";
-import { GenerationPipeline } from "@/generators/generation-pipeline";
+import { type GenerationContext, GenerationPipeline } from "@/generators/generation-pipeline";
 import { adoptLegacyIconSlots } from "@/generators/styles-legacy";
 import { stashCallbackToken } from "@/services/assistant/azgaar-server/auth";
 import { initiateAutosave } from "@/services/autosave";
@@ -62,7 +67,9 @@ export async function generate(config?: GenerationConfig): Promise<void> {
     if (precreatedGraph && points !== undefined) options.map.graph.points = points;
     applyGraphSize(); // TODO: DOM change, not part of generation
 
-    await GenerationPipeline.run({ graph: precreatedGraph });
+    const context: GenerationContext = { graph: precreatedGraph };
+    await GenerationPipeline.run(context);
+    presentCulturesClimate(context.culturesClimate ?? {});
     Options.persist();
 
     syncOptionInputs();

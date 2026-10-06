@@ -1,4 +1,4 @@
-import { drag, easeSinIn, select, transition } from "d3";
+import { type D3DragEvent, drag, easeSinIn, select, transition } from "d3";
 import {
   closeDialogs,
   confirmationDialog,
@@ -475,8 +475,8 @@ function getExtentOptions(type: string): string {
   return options;
 }
 
-const religionHighlightOn = debounce((event: any) => {
-  const religionId = Number(event.id || event.target.dataset.id);
+const religionHighlightOn = debounce((event: Event & { id?: string }) => {
+  const religionId = Number(event.id || (event.target as HTMLElement).dataset.id);
   const $el = ensureEl("religionsBody").querySelector(`div[data-id='${religionId}']`);
   if ($el) $el.classList.add("active");
 
@@ -498,8 +498,8 @@ const religionHighlightOn = debounce((event: any) => {
     .attr("stroke", "#d0240f");
 }, 200);
 
-function religionHighlightOff(event: any): void {
-  const religionId = Number(event.id || event.target.dataset.id);
+function religionHighlightOff(event: Event & { id?: string }): void {
+  const religionId = Number(event.id || (event.target as HTMLElement).dataset.id);
   const $el = ensureEl("religionsBody").querySelector(`div[data-id='${religionId}']`);
   if ($el) $el.classList.remove("active");
 
@@ -690,24 +690,24 @@ function drawReligionCenters(): void {
     .attr("fill", (d: any) => d.color)
     .attr("cx", (d: any) => pack.cells.p[d.center][0])
     .attr("cy", (d: any) => pack.cells.p[d.center][1])
-    .on("mouseenter", (event: any, d: any) => {
+    .on("mouseenter", (event: MouseEvent, d: any) => {
       tip(`${d.name}. Drag to move the religion center`, true);
       religionHighlightOn(event);
     })
-    .on("mouseleave", (event: any) => {
+    .on("mouseleave", (event: MouseEvent) => {
       tip("", true);
       religionHighlightOff(event);
     })
     .call(drag<SVGCircleElement, any>().on("start", religionCenterDrag));
 }
 
-function religionCenterDrag(this: any, event: any): void {
-  const religionId = +this.dataset.id;
-  const tr = parseTransform(this.getAttribute("transform"));
+function religionCenterDrag(this: SVGCircleElement, event: D3DragEvent<SVGCircleElement, unknown, unknown>): void {
+  const religionId = +this.dataset.id!;
+  const tr = parseTransform(this.getAttribute("transform") ?? "");
   const x0 = +tr[0] - event.x;
   const y0 = +tr[1] - event.y;
 
-  function handleDrag(this: any, dragEvent: any) {
+  function handleDrag(this: SVGCircleElement, dragEvent: D3DragEvent<SVGCircleElement, unknown, unknown>) {
     const { x, y } = dragEvent;
     this.setAttribute("transform", `translate(${x0 + x},${y0 + y})`);
     const cell = Pack.findCell(x, y);

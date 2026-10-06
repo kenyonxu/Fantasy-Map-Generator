@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("StatesModule.collectTaxes", () => {
   let StatesModule: any;
@@ -351,5 +351,117 @@ describe("StatesModule.setCells", () => {
     States.setCells(2, [1]);
     expect(pack.states[1]).toMatchObject({ cells: 1, area: 10, rural: 1, urban: 0, burgs: 0 });
     expect(pack.states[2]).toMatchObject({ cells: 2, area: 60, rural: 6, urban: 5, burgs: 1 });
+  });
+});
+
+describe("States.expandStates golden", () => {
+  beforeAll(async () => {
+    globalThis.TIME = false;
+    await import("./states-generator");
+    // @ts-expect-error vendored UMD script without TypeScript declarations
+    (globalThis as any).FlatQueue = (await import("../../public/libs/flatqueue.js")).default;
+  });
+
+  it("floods two states to a fixed split around the mountain pass", () => {
+    const n = 12;
+    globalThis.pack = {
+      cells: {
+        i: Array.from({ length: n }, (_, i) => i),
+        c: Array.from({ length: n }, (_, i) => [i - 1, i + 1].filter(x => x >= 0 && x < n)),
+        p: Array.from({ length: n }, (_, i) => [i * 10, 0]),
+        state: new Uint16Array(n),
+        culture: Uint16Array.from(Array.from({ length: n }, (_, i) => (i < 6 ? 1 : 2))),
+        biome: Uint8Array.from([1, 1, 1, 1, 1, 1, 4, 4, 4, 4, 4, 4]),
+        h: Array.from({ length: n }, (_, i) => (i === 6 ? 68 : 35)),
+        s: [20, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8],
+        t: new Array(n).fill(-1),
+        r: new Array(n).fill(0),
+        fl: new Array(n).fill(0),
+        burg: new Array(n).fill(0),
+        f: new Array(n).fill(0)
+      },
+      biomes: [
+        { i: 0, cost: 0 },
+        { i: 1, cost: 10 },
+        { i: 2, cost: 0 },
+        { i: 3, cost: 0 },
+        { i: 4, cost: 60 }
+      ],
+      features: [{ i: 0, type: "ocean", cells: 0 }],
+      cultures: [{ i: 0 }, { i: 1, center: 0 }, { i: 2, center: 11 }],
+      burgs: [0, { i: 1, cell: 0 }, { i: 2, cell: 11 }],
+      states: [
+        { i: 0, name: "Neutrals" },
+        { i: 1, name: "West", center: 0, capital: 1, culture: 1, type: "Generic", expansionism: 2 },
+        { i: 2, name: "East", center: 11, capital: 2, culture: 2, type: "Naval", expansionism: 1 }
+      ]
+    } as any;
+    options = Options.getDefaultOptions();
+    options.generation.states.growthRate = 20; // maxCost = (12 / 2) * 20 = 120
+
+    (globalThis as any).States.expandStates();
+
+    // golden from the converged priorityFlood: West rides its -9 culture bonus west of the
+    // mountain (62.5 at cell 5, mountain cost 2200 blocks it), East pays 19-22/step up to cell 7
+    // (82 accumulated — seeds enter the queue at cost 0); the flood semantics changed vs the
+    // legacy copies only for zero-cost churn (flood.test.ts)
+    expect([...globalThis.pack.cells.state]).toEqual([1, 1, 1, 1, 1, 1, 0, 2, 2, 2, 2, 2]);
+    expect(globalThis.pack.burgs[1].state).toBe(1);
+    expect(globalThis.pack.burgs[2].state).toBe(2);
+  });
+});
+
+describe("States.generateDiplomacy war declaration with only vassal rivals", () => {
+  beforeAll(async () => {
+    globalThis.TIME = false;
+    await import("./states-generator");
+  });
+
+  it("declares no war and does not throw when every rival is a vassal", () => {
+    // The relation loop always mirrors a suzerain's relations onto its vassals, so a rival-vassal
+    // never survives alone in rows this run generates. The guarded state arises from diplomacy rows
+    // the run did not clear (states 2-4 keep foreign rows via i: 0, which excludes them from
+    // `valid`), e.g. edited or legacy saves: attacker 4 rivals only vassal 3.
+    const row = (fill: Record<number, string>, length = 6) =>
+      Array.from({ length }, (_, i) => fill[i] ?? "x") as string[];
+    globalThis.pack = {
+      cells: {
+        i: [0, 1, 2, 3, 4, 5],
+        h: [30, 30, 30, 30, 30, 30],
+        state: new Uint16Array(6),
+        area: [0, 0, 0, 0, 0, 0]
+      },
+      states: [
+        { i: 0, name: "Neutrals" },
+        { i: 1, name: "Fairland", neighbors: [], center: 0, expansionism: 1, campaigns: [], type: "Generic" },
+        { i: 0, name: "Old suzerain", neighbors: [], diplomacy: row({ 4: "Vassal" }) }, // vassal of the attacker
+        { i: 0, name: "Old rival", neighbors: [], diplomacy: row({ 2: "Vassal", 4: "Vassal" }) }, // vassal of a third party
+        {
+          i: 0,
+          name: "Old attacker",
+          neighbors: [],
+          diplomacy: row({ 2: "Suzerain", 3: "Rival" }),
+          expansionism: 1,
+          campaigns: [],
+          type: "Generic"
+        },
+        { i: 5, name: "Farland", neighbors: [], center: 5, expansionism: 1, campaigns: [], type: "Generic" }
+      ]
+    } as any;
+    // 0.5 keeps every generated relation Neutral (far table) and blocks vassalization (zero areas)
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+
+    expect(() => (globalThis as any).States.generateDiplomacy()).not.toThrow();
+
+    const { states } = globalThis.pack as any;
+    // the war-declaration path was really reached: the attacker still rivals a vassal of a third party
+    expect(states[4].diplomacy[3]).toBe("Rival");
+    expect(states[3].diplomacy.includes("Vassal")).toBe(true);
+    // guard at states-generator.ts:652: no independent rival -> no war, no chronicle entry
+    expect(states[0].diplomacy).toEqual([]);
+    for (const state of states) {
+      expect(state.diplomacy?.includes("Enemy")).toBeFalsy();
+      expect(state.campaigns ?? []).toEqual([]);
+    }
   });
 });

@@ -482,11 +482,11 @@ function getTypeOptions(type: string | number): string {
   return options;
 }
 
-function stateHighlightOn(event: any): void {
+function stateHighlightOn(event: Event): void {
   if (!Layers.isOn("states")) return;
   if (select("#deftemp").select("#fog path").size()) return;
 
-  const state = +event.target.dataset.id;
+  const state = +(event.target as HTMLElement).dataset.id!;
   if (customization || !state) return;
   highlightOutline(select("#regions").select(`#state${state}`).attr("d"));
 }
@@ -955,8 +955,8 @@ function showStatesChart(): void {
     .append("g")
     .attr("transform", (d: any) => `translate(${d.x},${d.y})`)
     .attr("data-id", (d: any) => d.data.i)
-    .on("mouseenter", (event: any, d: any) => showInfo(event, d))
-    .on("mouseleave", (event: any) => hideInfo(event));
+    .on("mouseenter", (event: MouseEvent, d: any) => showInfo(event, d))
+    .on("mouseleave", (event: MouseEvent) => hideInfo(event));
 
   node
     .append("circle")
@@ -977,8 +977,10 @@ function showStatesChart(): void {
     .text((d: any) => d)
     .attr("dy", (_d: any, i: number, n: any) => `${i ? 1 : (n.length - 1) / -2}em`);
 
-  function showInfo(ev: any, d: any) {
-    select(ev.target).select("circle").classed("selected", true);
+  function showInfo(ev: MouseEvent, d: any) {
+    select(ev.target as Element)
+      .select("circle")
+      .classed("selected", true);
     const state = d.data.fullName;
 
     const area = `${getArea(d.data.area)} ${getAreaUnit()}`;
@@ -1003,11 +1005,13 @@ function showStatesChart(): void {
     stateHighlightOn(ev);
   }
 
-  function hideInfo(ev: any) {
+  function hideInfo(ev: MouseEvent) {
     stateHighlightOff();
     if (!document.getElementById("statesInfo")) return;
     ensureEl("statesInfo").innerHTML = "&#8205;";
-    select(ev.target).select("circle").classed("selected", false);
+    select(ev.target as Element)
+      .select("circle")
+      .classed("selected", false);
   }
 
   function updateChart(this: HTMLSelectElement) {
@@ -1219,9 +1223,9 @@ function openStateMergeDialog(): void {
     });
   applyLineHighlighting("alert", ({ cellId }) => pack.cells.state[cellId]);
 
-  function highlightStateOnMergeHover(event: any) {
+  function highlightStateOnMergeHover(event: Event) {
     if (!Layers.isOn("states")) return;
-    const state = +event.currentTarget.dataset.id;
+    const state = +(event.currentTarget as HTMLElement).dataset.id!;
     if (!state) return;
     const d = select("#regions").select(`#state${state}`).attr("d");
     if (!d) return;

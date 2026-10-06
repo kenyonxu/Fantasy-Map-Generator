@@ -783,7 +783,10 @@ function regenerateReligions(): void {
 }
 
 function regenerateCultures(): void {
-  Cultures.regenerate();
+  const { warning, error } = Cultures.regenerate();
+  if (error) return void tip(error, false, "error");
+  if (warning) tip(warning, false, "warn");
+
   Layers.draw("cultures", "goods");
 }
 

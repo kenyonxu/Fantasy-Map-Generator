@@ -23,6 +23,7 @@ import {
   trimVowels
 } from "../utils";
 import { CULTURE_TYPES } from "./cultures-generator";
+import { type FloodSeed, priorityFlood } from "./flood";
 import type { Label } from "./labels-generator";
 import type { Regiment } from "./military-generator";
 import { Population } from "./population-generator";
@@ -374,9 +375,6 @@ class StatesModule {
 
     cells.state = cells.state || new Uint16Array(cells.i.length);
 
-    const queue = new FlatQueue();
-    const cost: number[] = [];
-
     const growthRate = (cells.i.length / 2) * options.generation.states.growthRate; // limit cost for state growth
 
     // remove state from all cells except of locked
@@ -386,6 +384,7 @@ class StatesModule {
       cells.state[cellId] = 0;
     }
 
+    const seeds: FloodSeed<{ stateId: number; nativeBiome: number }>[] = [];
     for (const state of states) {
       if (!state.i || state.removed) continue;
 
@@ -393,39 +392,33 @@ class StatesModule {
       cells.state[capitalCell] = state.i;
       const cultureCenter = cultures[state.culture].center!;
       const b = cells.biome[cultureCenter]; // state native biome
-      queue.push({ e: state.center, p: 0, s: state.i, b }, 0);
-      cost[state.center] = 1;
+      seeds.push({ cell: state.center, ctx: { stateId: state.i, nativeBiome: b } });
     }
 
-    while (queue.length) {
-      const next = queue.pop();
+    priorityFlood<{ stateId: number; nativeBiome: number }>({
+      seeds,
+      neighbors: cellId => cells.c[cellId],
+      edgeCost: (_from, e, ctx, p) => {
+        const owner = states[cells.state[e]];
+        if (owner.lock) return null; // do not overwrite cell of locked states
+        if (cells.state[e] && e === owner.center) return null; // do not overwrite capital cells
 
-      const { e, p, s, b } = next;
-      const { type, culture } = states[s];
-
-      cells.c[e].forEach(e => {
-        const state = states[cells.state[e]];
-        if (state.lock) return; // do not overwrite cell of locked states
-        if (cells.state[e] && e === state.center) return; // do not overwrite capital cells
-
+        const { type, culture } = states[ctx.stateId];
         const cultureCost = culture === cells.culture[e] ? -9 : 100;
         const populationCost = cells.h[e] < 20 ? 0 : cells.s[e] ? Math.max(20 - cells.s[e], 0) : 5000;
-        const biomeCost = this.getBiomeCost(b, cells.biome[e], type);
+        const biomeCost = this.getBiomeCost(ctx.nativeBiome, cells.biome[e], type);
         const heightCost = this.getHeightCost(pack.features[cells.f[e]], cells.h[e], type);
         const riverCost = this.getRiverCost(cells.r[e], e, type);
         const typeCost = this.getTypeCost(cells.t[e], type);
         const cellCost = Math.max(cultureCost + populationCost + biomeCost + heightCost + riverCost + typeCost, 0);
-        const totalCost = p + 10 + cellCost / states[s].expansionism;
-
-        if (totalCost > growthRate) return;
-
-        if (!cost[e] || totalCost < cost[e]) {
-          if (cells.h[e] >= 20) cells.state[e] = s; // assign state to cell
-          cost[e] = totalCost;
-          queue.push({ e, p: totalCost, s, b }, totalCost);
-        }
-      });
-    }
+        return p + 10 + cellCost / states[ctx.stateId].expansionism;
+      },
+      assign: (e, ctx) => {
+        if (cells.h[e] >= 20) cells.state[e] = ctx.stateId; // assign state to cell
+      },
+      maxCost: growthRate,
+      initialCost: 1
+    });
 
     burgs
       .filter(b => b.i && !b.removed)

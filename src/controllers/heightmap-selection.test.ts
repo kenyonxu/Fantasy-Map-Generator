@@ -8,7 +8,11 @@ import { drawHeights } from "@/renderers/draw-heightmap";
 import "@/generators/grid-generator";
 import "@/generators/heightmap-generator";
 
-vi.mock("@/components/dialog/dialog-helpers", () => ({ closeDialogs: vi.fn(), confirmationDialog: vi.fn() }));
+vi.mock("@/components/dialog/dialog-helpers", () => ({
+  closeDialogs: vi.fn(),
+  confirmationDialog: vi.fn(),
+  presentCulturesClimate: vi.fn()
+}));
 vi.mock("@/components/options/tabs/options-tab", () => ({ syncOptionInputs: vi.fn() }));
 vi.mock("@/components/shell", () => ({ initShell: vi.fn(), warnIfServerless: vi.fn() }));
 vi.mock("@/components/zoom", () => ({ invokeActiveZooming: vi.fn(), resetZoom: vi.fn() }));
