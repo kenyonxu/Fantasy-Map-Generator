@@ -465,3 +465,94 @@ describe("States.generateDiplomacy war declaration with only vassal rivals", () 
     }
   });
 });
+
+describe("States.regenerate determinism", () => {
+  beforeAll(async () => {
+    globalThis.TIME = false;
+    await import("./states-generator");
+    // @ts-expect-error vendored UMD script without TypeScript declarations
+    (globalThis as any).FlatQueue = (await import("../../public/libs/flatqueue.js")).default;
+    (globalThis as any).aleaPRNG = (await import("alea")).default;
+  });
+
+  function buildPack() {
+    const n = 12;
+    return {
+      cells: {
+        i: Array.from({ length: n }, (_, i) => i),
+        c: Array.from({ length: n }, (_, i) => [i - 1, i + 1].filter(x => x >= 0 && x < n)),
+        p: Array.from({ length: n }, (_, i) => [i * 10, 0]),
+        state: new Uint16Array(n),
+        culture: Uint16Array.from(Array.from({ length: n }, (_, i) => (i < 6 ? 1 : 2))),
+        biome: Uint8Array.from(Array.from({ length: n }, () => 1)),
+        h: Array.from({ length: n }, () => 35),
+        s: Array.from({ length: n }, (_, i) => 20 - i),
+        t: new Array(n).fill(-1),
+        r: new Array(n).fill(0),
+        fl: new Array(n).fill(0),
+        burg: new Array(n).fill(0),
+        f: new Array(n).fill(0),
+        pop: new Array(n).fill(1)
+      },
+      biomes: [
+        { i: 0, cost: 0 },
+        { i: 1, cost: 10 }
+      ],
+      features: [{ i: 0, type: "ocean", cells: 0 }],
+      cultures: [
+        { i: 0, type: "Generic" },
+        { i: 1, type: "Generic", center: 0 },
+        { i: 2, type: "Generic", center: 11 }
+      ],
+      burgs: [
+        0,
+        { i: 1, cell: 0, x: 0, y: 0, name: "Westport", population: 10, culture: 1, capital: 1, state: 1 },
+        { i: 2, cell: 11, x: 110, y: 0, name: "Eastport", population: 9, culture: 2, capital: 1, state: 2 }
+      ],
+      states: [
+        { i: 0, name: "Neutrals" },
+        { i: 1, name: "West", center: 0, capital: 1, culture: 1, type: "Generic", expansionism: 2, capitalCell: 0 },
+        { i: 2, name: "East", center: 11, capital: 2, culture: 2, type: "Generic", expansionism: 1, capitalCell: 11 }
+      ],
+      provinces: [0]
+    } as any;
+  }
+
+  function setupGlobals() {
+    (globalThis as any).Names = {
+      getCulture: () => "Test",
+      getState: () => "Testia"
+    } as any;
+    (globalThis as any).Burgs = { changeGroup: () => {} } as any;
+    (globalThis as any).Emblems = { generate: () => ({ shield: "x" }) } as any;
+    (globalThis as any).Provinces = { regenerate: () => {} } as any;
+    (globalThis as any).Military = { regenerate: () => {} } as any;
+
+    // deterministic downstream steps: stub so the test isolates seed determinism
+    const States = (globalThis as any).States;
+    vi.spyOn(States as any, "getPoles").mockImplementation(() => {});
+    vi.spyOn(States as any, "findNeighbors").mockImplementation(() => {});
+    vi.spyOn(States as any, "collectStatistics").mockImplementation(() => {});
+    vi.spyOn(States as any, "assignColors").mockImplementation(() => {});
+    vi.spyOn(States as any, "generateCampaigns").mockImplementation(() => {});
+    vi.spyOn(States as any, "generateDiplomacy").mockImplementation(() => {});
+    vi.spyOn(States as any, "defineStateForms").mockImplementation(() => {});
+  }
+
+  it("produces identical states on repeated regenerate with the same map seed", () => {
+    setupGlobals();
+    options = Options.getDefaultOptions();
+    options.map.seed = "fixed-seed-42";
+    options.generation.states.limit = 2;
+
+    (globalThis as any).pack = buildPack();
+    (globalThis as any).States.regenerate();
+    const firstRun = JSON.stringify((globalThis as any).pack.states);
+
+    (globalThis as any).pack = buildPack();
+    (globalThis as any).States.regenerate();
+    const secondRun = JSON.stringify((globalThis as any).pack.states);
+
+    expect(secondRun).toBe(firstRun);
+  });
+});

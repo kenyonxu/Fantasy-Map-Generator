@@ -9,7 +9,6 @@ import {
   each,
   escapeHtml,
   gauss,
-  generateSeed,
   getAdjective,
   getMixedColor,
   getPolesOfInaccessibility,
@@ -190,7 +189,7 @@ class StatesModule {
   }
 
   private recreate(): { warning?: string; error?: string; states?: State[] } {
-    Math.random = aleaPRNG(generateSeed());
+    Math.random = aleaPRNG(options.map.seed);
     const statesCount = options.generation.states.limit;
     if (!statesCount) return { error: "<i>States Number</i> option value is zero. No counties are generated" };
 
