@@ -107,6 +107,91 @@ describe("Cultures.expand golden", () => {
   });
 });
 
+describe("Cultures.generate extreme climate", () => {
+  const n = 100;
+  const makeCells = (populatedCount: number) => ({
+    i: Array.from({ length: n }, (_, i) => i),
+    s: Array.from({ length: n }, (_, i) => (i < populatedCount ? 1 : 0)),
+    c: Array.from({ length: n }, (_, i) => [i - 1, i + 1].filter(x => x >= 0 && x < n)),
+    g: Array.from({ length: n }, (_, i) => i),
+    p: Array.from({ length: n }, (_, i) => [i * 20, 0] as [number, number]),
+    culture: new Uint16Array(n),
+    biome: new Uint8Array(n).fill(5),
+    h: new Array(n).fill(35),
+    r: new Array(n).fill(0),
+    fl: new Array(n).fill(0),
+    t: new Array(n).fill(-1),
+    pop: new Array(n).fill(5),
+    area: new Array(n).fill(5),
+    f: new Array(n).fill(0),
+    haven: new Array(n).fill(0),
+    harbor: new Array(n).fill(0)
+  });
+
+  beforeEach(() => {
+    (globalThis as any).FlatQueue = FlatQueue;
+    options = Options.getDefaultOptions();
+    options.generation.cultures = { ...options.generation.cultures, set: "english", limit: 4 };
+    options.map.graph.width = 200;
+    options.map.graph.height = 100;
+    vi.stubGlobal("grid", { cells: { temp: new Array(n).fill(5) } });
+    vi.stubGlobal("Names", { nameBases: new Array(10).fill({}), getBase: () => "Test" } as any);
+    vi.stubGlobal("$", vi.fn());
+    vi.stubGlobal("alertMessage", { innerHTML: "" });
+  });
+
+  it("returns a warning instead of driving the DOM when no cell is populated", () => {
+    vi.stubGlobal("pack", { cells: makeCells(0), features: [{ i: 0, type: "ocean", cells: 0 }] });
+
+    const result = Cultures.generate();
+
+    expect(result?.warning).toContain("The climate is harsh");
+    expect(result?.error).toBeUndefined();
+    expect($).not.toHaveBeenCalled();
+    expect((globalThis as any).alertMessage.innerHTML).toBe("");
+    expect(pack.cultures).toEqual([expect.objectContaining({ name: "Wildlands" })]);
+  });
+
+  it("returns a warning and keeps generating the reduced count when livable area is insufficient", () => {
+    // 60 of 100 populated: 60 < 4 * 25 lowers the count to floor(60 / 50) = 1
+    vi.stubGlobal("pack", { cells: makeCells(60), features: [{ i: 0, type: "ocean", cells: 0 }] });
+
+    const result = Cultures.generate();
+
+    expect(result?.warning).toContain("There are only 60 populated cells");
+    expect(result?.warning).toContain("Only 1 out of 4");
+    expect(result?.error).toBeUndefined();
+    expect($).not.toHaveBeenCalled();
+    expect((globalThis as any).alertMessage.innerHTML).toBe("");
+    expect(pack.cultures).toHaveLength(2); // Wildlands + the one reduced culture
+  });
+
+  it("returns an empty result when the climate is livable", () => {
+    vi.stubGlobal("pack", { cells: makeCells(n), features: [{ i: 0, type: "ocean", cells: 0 }] });
+
+    const result = Cultures.generate();
+
+    expect(result).toEqual({});
+    expect($).not.toHaveBeenCalled();
+    expect(pack.cultures).toHaveLength(5); // Wildlands + 4 requested
+  });
+
+  it("regenerate passes the generate result through", () => {
+    vi.stubGlobal("pack", {
+      cells: makeCells(0),
+      features: [{ i: 0, type: "ocean", cells: 0 }],
+      states: [{ i: 0 }],
+      burgs: [0],
+      religions: [{ i: 0 }]
+    });
+
+    const result = Cultures.regenerate();
+
+    expect(result?.warning).toContain("The climate is harsh");
+    expect($).not.toHaveBeenCalled();
+  });
+});
+
 describe("Cultures.regenerate with a locked culture", () => {
   beforeEach(() => {
     (globalThis as any).FlatQueue = FlatQueue;

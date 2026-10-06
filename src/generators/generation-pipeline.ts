@@ -5,6 +5,22 @@ import { Population } from "@/generators/population-generator";
 import type { GridGraph } from "@/types/GridGraph";
 import { Coordinates } from "./coordinates";
 
+// Cultures.generate() reports extreme-climate outcomes instead of driving the DOM; the pipeline is
+// the app-shell layer allowed to present them
+const presentCulturesClimate = (result: { warning?: string; error?: string }) => {
+  if (!result.warning && !result.error) return;
+  alertMessage.innerHTML = result.error ?? result.warning ?? "";
+  $("#alert").dialog({
+    resizable: false,
+    title: "Extreme climate warning",
+    buttons: {
+      Ok: function () {
+        $(this).dialog("close");
+      }
+    }
+  });
+};
+
 const generationPipelineSteps = [
   { id: "grid", run: ({ graph }) => Grid.prepare(graph) },
   { id: "heightmap", run: () => HeightmapGenerator.generate() },
@@ -25,7 +41,7 @@ const generationPipelineSteps = [
   { id: "ice", run: () => Ice.generate() },
   { id: "goods", run: () => Goods.generate() },
   { id: "rankCells", run: () => Population.rankCells() },
-  { id: "cultures", run: () => Cultures.generate() },
+  { id: "cultures", run: () => presentCulturesClimate(Cultures.generate()) },
   { id: "culturesExpand", run: () => Cultures.expand() },
   { id: "burgs", run: () => Burgs.generate() },
   { id: "states", run: () => States.generate() },
@@ -72,7 +88,7 @@ const erasePipelineSteps = [
   { id: "ice", run: () => Ice.generate() },
   { id: "goods", run: () => Goods.generate() },
   { id: "rankCells", run: () => Population.rankCells() },
-  { id: "cultures", run: () => Cultures.generate() },
+  { id: "cultures", run: () => presentCulturesClimate(Cultures.generate()) },
   { id: "culturesExpand", run: () => Cultures.expand() },
   { id: "burgs", run: () => Burgs.generate() },
   { id: "states", run: () => States.generate() },

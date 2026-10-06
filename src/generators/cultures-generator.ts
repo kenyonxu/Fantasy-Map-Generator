@@ -1033,7 +1033,8 @@ class CulturesGenerator {
     ];
   }
 
-  generate() {
+  /** Extreme-climate outcomes are returned to the caller (pipeline/app shell) for presentation */
+  generate(): { warning?: string; error?: string } {
     options.map.cultures.set = options.generation.cultures.set;
     this.cells = pack.cells;
     const cultureIds = new Uint16Array(this.cells.i.length); // cell cultures
@@ -1042,6 +1043,7 @@ class CulturesGenerator {
     const culturesInSetNumber = CULTURE_SETS[options.map.cultures.set]?.max ?? 0;
     let count = Math.min(culturesInputNumber, culturesInSetNumber);
     const populated = this.cells.i.filter((i: number) => this.cells.s[i]); // populated cells
+    let warning: string | undefined;
 
     if (populated.length < count * 25) {
       count = Math.floor(populated.length / 50);
@@ -1058,35 +1060,16 @@ class CulturesGenerator {
         ];
         this.cells.culture = cultureIds;
 
-        alertMessage.innerHTML = /* html */ `The climate is harsh and people cannot live in this world.<br />
-          No cultures, states and burgs will be created.<br />
-          Please consider changing climate settings in the World Configurator`;
-
-        $("#alert").dialog({
-          resizable: false,
-          title: "Extreme climate warning",
-          buttons: {
-            Ok: function () {
-              $(this).dialog("close");
-            }
-          }
-        });
-        return;
-      } else {
-        WARN && console.warn(`Not enough populated cells (${populated.length}). Will generate only ${count} cultures`);
-        alertMessage.innerHTML = /* html */ ` There are only ${populated.length} populated cells and it's insufficient livable area.<br />
-          Only ${count} out of ${options.generation.cultures.limit} requested cultures will be generated.<br />
-          Please consider changing climate settings in the World Configurator`;
-        $("#alert").dialog({
-          resizable: false,
-          title: "Extreme climate warning",
-          buttons: {
-            Ok: function () {
-              $(this).dialog("close");
-            }
-          }
-        });
+        return {
+          warning: `The climate is harsh and people cannot live in this world.<br />
+            No cultures, states and burgs will be created.<br />
+            Please consider changing climate settings in the World Configurator`
+        };
       }
+      WARN && console.warn(`Not enough populated cells (${populated.length}). Will generate only ${count} cultures`);
+      warning = `There are only ${populated.length} populated cells and it's insufficient livable area.<br />
+        Only ${count} out of ${options.generation.cultures.limit} requested cultures will be generated.<br />
+        Please consider changing climate settings in the World Configurator`;
     }
 
     const selectCultures = (culturesNumber: number): Culture[] => {
@@ -1221,6 +1204,8 @@ class CulturesGenerator {
     cultures.forEach((c: Culture) => {
       c.base = c.base % Names.nameBases.length;
     });
+
+    return { warning };
   }
 
   /** Found a culture centered at a map point; it takes land when cultures are recalculated. Returns its id */
@@ -1485,8 +1470,8 @@ class CulturesGenerator {
     return culture;
   }
 
-  regenerate(): void {
-    this.generate();
+  regenerate(): { warning?: string; error?: string } {
+    const result = this.generate();
     this.expand();
 
     pack.states = pack.states.map(state =>
@@ -1498,6 +1483,8 @@ class CulturesGenerator {
     pack.religions = pack.religions.map(religion =>
       !religion.i || religion.removed ? religion : { ...religion, culture: pack.cells.culture[religion.center] }
     );
+
+    return result;
   }
 }
 
