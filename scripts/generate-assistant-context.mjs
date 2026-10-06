@@ -86,27 +86,30 @@ function operations() {
     .join("\n");
 }
 
+export function extractStatement(source, start) {
+  let depth = 0;
+  for (let index = start; index < source.length; index++) {
+    const char = source[index];
+    const prev = source[index - 1];
+    if ("{(<[".includes(char)) depth++;
+    else if ("})>]".includes(char)) {
+      if (char === ">" && prev === "=") continue; // arrow function `=>` is not a bracket
+      depth--;
+      if (!depth && char === "}" && /^\s*interface /.test(source.slice(start).replace(/^export /, "")))
+        return source.slice(start, index + 1);
+    } else if (char === ";" && !depth) return source.slice(start, index + 1);
+  }
+  return source.slice(start);
+}
+
 // The declarations of the types operation signatures name, and the types and constants those use in turn.
 // A type read by index (`Good["multipliers"]`) is not followed: the doc line describes that part
 function operationTypes(list) {
-  const statement = (source, start) => {
-    let depth = 0;
-    for (let index = start; index < source.length; index++) {
-      const char = source[index];
-      if ("{(<[".includes(char)) depth++;
-      else if ("})>]".includes(char)) {
-        depth--;
-        if (!depth && char === "}" && /^\s*interface /.test(source.slice(start).replace(/^export /, "")))
-          return source.slice(start, index + 1);
-      } else if (char === ";" && !depth) return source.slice(start, index + 1);
-    }
-    return source.slice(start);
-  };
   const declare = name => {
     const pattern = new RegExp(`^(?:export )?(?:interface|type|const) ${name}\\b`, "m");
     for (const source of sources) {
       const match = pattern.exec(source);
-      if (match) return statement(source, match.index).replace(/^export /, "");
+      if (match) return extractStatement(source, match.index).replace(/^export /, "");
     }
     return null;
   };
