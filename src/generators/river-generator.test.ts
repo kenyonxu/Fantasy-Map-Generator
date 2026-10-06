@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MIN_NAVIGABLE_FLUX } from "./river-generator";
 
 describe("RiverModule helpers", () => {
@@ -168,5 +168,84 @@ describe("RiverModule.rename", () => {
     (globalThis as any).Rivers.rename(7, "Brae");
     expect(pack.rivers[0]).toMatchObject({ name: "Brae", label: { text: "Brae Falls" } });
     expect(() => (globalThis as any).Rivers.rename(1, "X")).toThrow("River 1 does not exist");
+  });
+});
+
+describe("river type threshold", () => {
+  it("recomputes smallLength on each generate", async () => {
+    // all-water stub: generate() runs end to end without forming rivers
+    globalThis.pack = {
+      cells: {
+        i: [0, 1, 2],
+        c: [[1], [0, 2], [1]],
+        h: [10, 10, 10],
+        t: [0, 0, 0],
+        b: [0, 0, 0],
+        f: [0, 0, 0],
+        g: [0, 0, 0],
+        p: [
+          [0, 0],
+          [10, 0],
+          [20, 0]
+        ]
+      },
+      features: [],
+      rivers: []
+    } as any;
+    globalThis.grid = { cells: { prec: [5, 5, 5] }, points: [0, 0] } as any;
+    (globalThis as any).Lakes = {
+      detectCloseLakes: () => {},
+      defineClimateData: () => [],
+      cleanupLakeData: () => {}
+    };
+
+    await import("./river-generator");
+    const Rivers = (globalThis as any).Rivers;
+
+    Rivers.smallLength = 5; // simulate a previous map's stale cache
+    Rivers.generate(false);
+    expect(Rivers.smallLength).not.toBe(5); // generate must clear it before use
+  });
+});
+
+describe("addDownhill cell 0", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("claims cell 0 instead of skipping it as a sentinel", async () => {
+    // a 3-cell slope: cell 0 (highest) -> cell 1 -> cell 2 (water, h<20)
+    globalThis.grid = { cells: { prec: [5, 5, 5] }, points: [0, 0] } as any;
+    globalThis.pack = {
+      cells: {
+        i: [0, 1, 2],
+        c: [[1], [0, 2], [1]], // adjacency
+        g: [0, 1, 2],
+        h: [30, 25, 10], // 10 < 20 => water at cell 2
+        p: [
+          [0, 0],
+          [10, 0],
+          [20, 0]
+        ],
+        fl: [0, 0, 0],
+        r: [0, 0, 0],
+        conf: [0, 0, 0],
+        b: [0, 0, 0],
+        f: [0, 0, 1],
+        culture: [0, 0, 0]
+      },
+      features: [null, { type: "ocean" }],
+      rivers: []
+    } as any;
+    (globalThis as any).Names = { getCulture: () => "Ald" };
+
+    await import("./river-generator");
+    const Rivers = (globalThis as any).Rivers;
+    // keep the test focused on the while condition
+    vi.spyOn(Rivers, "alterHeights").mockReturnValue([30, 25, 10]);
+    vi.spyOn(Rivers, "resolveDepressions").mockReturnValue(undefined);
+
+    Rivers.addDownhill(0);
+    expect(globalThis.pack.cells.r[0]).not.toBe(0); // cell 0 was claimed by a river
   });
 });
