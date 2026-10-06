@@ -15,6 +15,7 @@ import {
   trimVowels
 } from "../utils";
 import { Population } from "./population-generator";
+import type { Route } from "./routes-generator";
 
 declare global {
   var Religions: ReligionsModule;
@@ -1043,6 +1044,7 @@ class ReligionsModule {
       });
 
     const religionsMap = new Map(religions.map(r => [r.i, r]));
+    const routeById = this.routeById();
 
     while (queue.length) {
       const { e: cellId, p, r, s: state } = queue.pop();
@@ -1056,7 +1058,7 @@ class ReligionsModule {
 
         const cultureCost = culture !== cells.culture[nextCell] ? 10 : 0;
         const stateCost = state !== cells.state[nextCell] ? 10 : 0;
-        const passageCost = this.getPassageCost(cellId, nextCell);
+        const passageCost = this.getPassageCost(cellId, nextCell, routeById);
 
         const cellCost = cultureCost + stateCost + passageCost;
         const totalCost = p + 10 + cellCost / expansionism;
@@ -1082,6 +1084,7 @@ class ReligionsModule {
     const cost: number[] = [];
     const maxExpansionCost = (cells.i.length / 20) * options.generation.cultures.growthRate;
     const religionsMap = new Map(religions.map(religion => [religion.i, religion]));
+    const routeById = this.routeById();
 
     for (const heresy of heresies) {
       const baseReligionId = heresy.origins?.[0];
@@ -1101,7 +1104,7 @@ class ReligionsModule {
         if (religionsMap.get(religionIds[nextCell])?.lock) continue;
 
         const religionCost = religionIds[nextCell] === baseReligionId ? 0 : 2000;
-        const passageCost = this.getPassageCost(cellId, nextCell);
+        const passageCost = this.getPassageCost(cellId, nextCell, routeById);
         const totalCost = p + 10 + (religionCost + passageCost) / Math.max(religion.expansionism, 0.1);
         if (totalCost > maxExpansionCost) continue;
 
@@ -1162,8 +1165,13 @@ class ReligionsModule {
       });
   }
 
-  private getPassageCost(cellId: number, nextCellId: number): number {
-    const route = Routes.getRoute(cellId, nextCellId);
+  private routeById(): Map<number, Route> {
+    return new Map(pack.routes.map(route => [route.i, route]));
+  }
+
+  private getPassageCost(cellId: number, nextCellId: number, routeById: Map<number, Route>): number {
+    const routeId = pack.cells.routes[cellId]?.[nextCellId];
+    const route = routeId === undefined ? null : (routeById.get(routeId) ?? null);
     if (isWater(cellId, pack)) return route ? 50 : 500;
 
     const biomePassageCost = pack.biomes[pack.cells.biome[nextCellId]].cost;
