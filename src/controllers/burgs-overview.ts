@@ -17,7 +17,16 @@ import { Controllers } from "@/controllers";
 import type { Burg } from "@/generators/burgs-generator";
 import { removeEmblem } from "@/renderers/draw-emblems";
 import { downloadFile, getFileName, getHeight, getLatitude, getLongitude, uploadFile } from "@/utils";
-import { convertTemperature, createFileInput, ensureEl, getTemperatureLikeness, rn, si } from "../utils";
+import {
+  convertTemperature,
+  createFileInput,
+  ensureEl,
+  escapeHtml,
+  getTemperatureLikeness,
+  rn,
+  si,
+  toCsvField
+} from "../utils";
 
 type Filters = { stateId?: number | null; cultureId?: number | null };
 type FilterState = { search: string; stateId: number; cultureId: number };
@@ -342,11 +351,11 @@ function renderBurgsPage(view: TableView<Burg>): void {
     lines += /* html */ `<div
         class="states"
         data-id=${b.i}
-        data-name="${b.name}"
-        data-state="${state}"
-        data-province="${province}"
-        data-culture="${culture}"
-        data-group="${b.group}"
+        data-name="${escapeHtml(b.name ?? "")}"
+        data-state="${escapeHtml(state)}"
+        data-province="${escapeHtml(province)}"
+        data-culture="${escapeHtml(culture)}"
+        data-group="${escapeHtml(b.group ?? "")}"
         data-population=${population}
         data-grossproduct=${grossProduct}
         data-productpercapita=${productPerCapita}
@@ -354,11 +363,11 @@ function renderBurgsPage(view: TableView<Burg>): void {
         data-features="${features}"
       >
         <span data-tip="Click to zoom into view" class="icon-dot-circled pointer" data-col="locate"></span>
-        <input data-tip="Burg name" class="burgName" value="${b.name}" data-col="name" disabled />
-        <input data-tip="Burg province" value="${province}" data-col="province" disabled />
-        <input data-tip="Burg state" value="${state}" data-col="state" disabled />
-        <input data-tip="Dominant culture" value="${culture}" data-col="culture" disabled />
-        <input data-tip="Burg group" value="${b.group}" data-col="group" disabled />
+        <input data-tip="Burg name" class="burgName" value="${escapeHtml(b.name ?? "")}" data-col="name" disabled />
+        <input data-tip="Burg province" value="${escapeHtml(province)}" data-col="province" disabled />
+        <input data-tip="Burg state" value="${escapeHtml(state)}" data-col="state" disabled />
+        <input data-tip="Dominant culture" value="${escapeHtml(culture)}" data-col="culture" disabled />
+        <input data-tip="Burg group" value="${escapeHtml(b.group ?? "")}" data-col="group" disabled />
         <div data-col="population">
           <span data-tip="Burg population" class="icon-male"></span>
           <input data-tip="Burg population" value=${si(population)} disabled />
@@ -573,7 +582,8 @@ function showBurgsChart(): void {
       d.value * options.map.units.population.scale * options.map.units.population.urbanization.rate
     );
 
-    ensureEl("burgsInfo").innerHTML = /* html */ `${name}. ${parent}. Population: ${population}`;
+    ensureEl("burgsInfo").innerHTML =
+      /* html */ `${escapeHtml(name)}. ${escapeHtml(parent)}. Population: ${population}`;
     burgHighlightOn(ev);
     tip("Click to zoom into view");
   }
@@ -673,15 +683,15 @@ function downloadBurgsData(): void {
 
   valid.forEach(b => {
     data += `${b.i},`;
-    data += `${b.name},`;
+    data += `${toCsvField(b.name ?? "")},`;
     const province = pack.cells.province[b.cell];
-    data += province ? `${pack.provinces[province].name},` : ",";
-    data += province ? `${pack.provinces[province].fullName},` : ",";
-    data += `${pack.states[b.state!].name},`;
-    data += `${pack.states[b.state!].fullName},`;
-    data += `${pack.cultures[b.culture!].name},`;
-    data += `${pack.religions[pack.cells.religion[b.cell]].name},`;
-    data += `${b.group},`;
+    data += province ? `${toCsvField(pack.provinces[province].name)},` : ",";
+    data += province ? `${toCsvField(pack.provinces[province].fullName)},` : ",";
+    data += `${toCsvField(pack.states[b.state!].name)},`;
+    data += `${toCsvField(pack.states[b.state!].fullName ?? "")},`;
+    data += `${toCsvField(pack.cultures[b.culture!].name)},`;
+    data += `${toCsvField(pack.religions[pack.cells.religion[b.cell]].name)},`;
+    data += `${toCsvField(b.group ?? "")},`;
     data += `${rn(b.population! * options.map.units.population.scale * options.map.units.population.urbanization.rate)},`;
 
     // add geography data
@@ -692,7 +702,7 @@ function downloadBurgsData(): void {
     data += `${parseInt(getHeight(pack.cells.h[b.cell]), 10)},`;
     const temperature = grid.cells.temp[pack.cells.g[b.cell]];
     data += `${convertTemperature(temperature)},`;
-    data += `${getTemperatureLikeness(temperature)},`;
+    data += `${toCsvField(getTemperatureLikeness(temperature) ?? "")},`;
 
     // add status data
     data += b.capital ? "capital," : ",";
@@ -702,8 +712,8 @@ function downloadBurgsData(): void {
     data += b.plaza ? "plaza," : ",";
     data += b.temple ? "temple," : ",";
     data += b.shanty ? "shanty town," : ",";
-    data += b.coa ? `${JSON.stringify(b.coa).replace(/"/g, "").replace(/,/g, ";")},` : ",";
-    data += Burgs.getPreview(b).link;
+    data += b.coa ? `${toCsvField(JSON.stringify(b.coa).replace(/"/g, "").replace(/,/g, ";"))},` : ",";
+    data += toCsvField(Burgs.getPreview(b).link ?? "");
 
     data += "\n";
   });
@@ -768,7 +778,7 @@ function importBurgNames(dataLoaded: string): void {
     const v = data[i];
     if (!v || !burgs[i] || v === burgs[i].name) continue;
     change.push({ id: burgs[i].i, name: v });
-    message += `<tr><td style="width:20%">${burgs[i].i}</td><td style="width:40%">${burgs[i].name}</td><td style="width:40%">${v}</td></tr>`;
+    message += `<tr><td style="width:20%">${burgs[i].i}</td><td style="width:40%">${escapeHtml(burgs[i].name ?? "")}</td><td style="width:40%">${escapeHtml(v)}</td></tr>`;
   }
   message += `</tr></table>`;
 

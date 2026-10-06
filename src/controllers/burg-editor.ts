@@ -295,7 +295,7 @@ function updateBurgValues(): void {
   const province = pack.cells.province[b.cell];
   const provinceName = province ? `${pack.provinces[province].fullName}, ` : "";
   const stateName = pack.states[b.state!].fullName || pack.states[b.state!].name;
-  ensureEl("burgProvinceAndState").innerHTML = provinceName + stateName;
+  ensureEl("burgProvinceAndState").innerHTML = escapeHtml(provinceName) + escapeHtml(stateName);
 
   ensureEl<HTMLInputElement>("burgName").value = b.name!;
   ensureEl<HTMLSelectElement>("burgGroup").value = b.group!;
@@ -789,7 +789,7 @@ function getProduction(pool: Record<number, number>): string {
     if (!resource) continue;
     const { name, unit, icon } = resource;
     const unitName = production === 1 ? unit : `${unit}s`;
-    html += `<span data-tip="${name}: ${production} ${unitName} per day">
+    html += `<span data-tip="${escapeHtml(name)}: ${production} ${unitName} per day">
       <svg class="resIcon" width="1em" height="1em"><use href="${Icons.href(icon)}"${goodIconLines()}></use></svg>
       <span style="margin: 0 0.2em 0 -0.2em">${production}</span>
     </span>`;
