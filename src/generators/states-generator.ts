@@ -796,7 +796,7 @@ class StatesModule {
   }
 
   // select a forms for listed or all valid states
-  defineStateForms(list: number[] | null = null, R: RandomKit = makeRandom(options.map.seed)) {
+  defineStateForms(list: number[] | null = null, R?: RandomKit) {
     const states = pack.states.filter(s => s.i && !s.removed && !s.lock);
     if (states.length < 1) return;
 
@@ -930,7 +930,7 @@ class StatesModule {
       };
 
       s.formName = selectForm(s, tier);
-      s.fullName = this.getFullName(s, R.next);
+      s.fullName = this.getFullName(s, R?.next);
 
       const taxes = this.defineTaxRates(s, R);
       s.salesTax = taxes.salesTax;
