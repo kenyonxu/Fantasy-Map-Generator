@@ -20,6 +20,7 @@ import {
 } from "@/data/journey-lore";
 import type { Journey, JourneyPoint, JourneySegment } from "@/types/Journey";
 import { getAdjective, P, ra, rand, rw } from "@/utils";
+import type { RandomKit } from "@/utils/random";
 import type { Burg } from "../burgs-generator";
 import type { Transport, TransportDomain } from "../transports-generator";
 import { cellPlacePhrase } from "./journey-places";
@@ -38,6 +39,16 @@ const SPLIT_BAND: [number, number] = [0.35, 0.65];
 const HARBOR_WAIT_CHANCE = 0.45;
 const MUSTER_CHANCE = 0.25;
 const MAX_SEGMENTS = 15;
+
+// without a kit, interactive callers (add a random journey) draw the ambient global stream
+const roll = (R: RandomKit | undefined, probability: number): boolean => (R ? R.P(probability) : P(probability));
+const pick = <T>(R: RandomKit | undefined, array: ArrayLike<T>): T => (R ? R.ra(array) : ra(array));
+const pickWeighted = (R: RandomKit | undefined, object: Record<string, number>): string =>
+  R ? R.rw(object) : rw(object);
+const rollInt = (R: RandomKit | undefined, min?: number, max?: number): number =>
+  R ? R.rand(min, max) : rand(min, max);
+const jitter = (R: RandomKit | undefined): number => (R ? R.next() : Math.random());
+const adjective = (R: RandomKit | undefined, noun: string): string => getAdjective(noun, R ? R.next : Math.random);
 
 interface PlannedLeg {
   from: Burg;
@@ -63,48 +74,56 @@ export interface JourneyPathfinder {
 }
 
 /** Invent a party and plot their route; null when the map cannot carry one. */
-export function generateStoryJourney(pathfinder: JourneyPathfinder): Omit<Journey, "i" | "color"> | null {
+export function generateStoryJourney(
+  pathfinder: JourneyPathfinder,
+  R?: RandomKit
+): Omit<Journey, "i" | "color"> | null {
   const burgs = (pack.burgs ?? []).filter((burg: Burg) => burg?.i && !burg.removed && burg.cell !== undefined);
   if (burgs.length < 2) return null;
 
   const weights = Object.fromEntries(
     Object.entries(JOURNEY_ARCHETYPES).map(([key, archetype]) => [key, archetype.weight])
   );
-  const archetype = JOURNEY_ARCHETYPES[rw(weights)];
+  const archetype = JOURNEY_ARCHETYPES[pickWeighted(R, weights)];
 
   // an origin can turn out to be a dead end: a lone burg on an island nothing sails to
   for (let attempt = 0; attempt < ORIGIN_RETRIES; attempt++) {
-    const legs = planLegs(pathfinder, archetype, burgs);
+    const legs = planLegs(pathfinder, archetype, burgs, R);
     if (!legs.length) continue;
 
-    const segments = buildSegments(pathfinder, archetype, legs);
-    if (segments.length) return { name: titleFor(archetype, legs), type: archetype.type, segments };
+    const segments = buildSegments(pathfinder, archetype, legs, R);
+    if (segments.length) return { name: titleFor(archetype, legs, R), type: archetype.type, segments };
   }
 
   return null;
 }
 
-function planLegs(pathfinder: JourneyPathfinder, archetype: JourneyArchetype, burgs: Burg[]): PlannedLeg[] {
+function planLegs(
+  pathfinder: JourneyPathfinder,
+  archetype: JourneyArchetype,
+  burgs: Burg[],
+  R?: RandomKit
+): PlannedLeg[] {
   const diagonal = Math.hypot(options.map.graph.width, options.map.graph.height) || 1;
   const band: [number, number] = [diagonal * LEG_MIN_FACTOR, diagonal * LEG_MAX_FACTOR];
 
-  const origin = pickOrigin(burgs, archetype);
+  const origin = pickOrigin(burgs, archetype, R);
   const visited = new Set<number>([origin.i]);
   const legs: PlannedLeg[] = [];
 
   let current = origin;
   let attempts = 0;
-  const legCount = Number(rw(LEG_COUNT_WEIGHTS));
+  const legCount = Number(pickWeighted(R, LEG_COUNT_WEIGHTS));
 
   while (legs.length < legCount && attempts < MAX_PATH_ATTEMPTS) {
-    const candidates = rankCandidates(current, burgs, visited, band, archetype);
+    const candidates = rankCandidates(current, burgs, visited, band, archetype, R);
     if (!candidates.length) break;
 
     let leg: PlannedLeg | null = null;
     for (const candidate of candidates) {
       if (attempts++ >= MAX_PATH_ATTEMPTS) break;
       visited.add(candidate.i); // a candidate that fails is not worth retrying later either
-      leg = buildLeg(pathfinder, archetype, current, candidate);
+      leg = buildLeg(pathfinder, archetype, current, candidate, R);
       if (leg) break;
     }
 
@@ -118,7 +137,7 @@ function planLegs(pathfinder: JourneyPathfinder, archetype: JourneyArchetype, bu
   return legs;
 }
 
-function pickOrigin(burgs: Burg[], archetype: JourneyArchetype): Burg {
+function pickOrigin(burgs: Burg[], archetype: JourneyArchetype, R?: RandomKit): Burg {
   const neighbours: Record<number, number> = {};
   for (const burg of burgs) neighbours[pack.cells.f[burg.cell]] = (neighbours[pack.cells.f[burg.cell]] ?? 0) + 1;
 
@@ -138,11 +157,11 @@ function pickOrigin(burgs: Burg[], archetype: JourneyArchetype): Burg {
       // a burg alone on its island has nowhere overland to go — no trouble to a party that leaves by sea or air
       const overland = Math.min(1, (neighbours[pack.cells.f[burg.cell]] ?? 1) / 3);
       score *= overland + (1 - overland) * overWater;
-      return { burg, score: score * (0.5 + Math.random()) };
+      return { burg, score: score * (0.5 + jitter(R)) };
     })
     .sort((a, b) => b.score - a.score);
 
-  return ra(scored.slice(0, ORIGIN_POOL_SIZE)).burg;
+  return pick(R, scored.slice(0, ORIGIN_POOL_SIZE)).burg;
 }
 
 /** Next stops worth trying, best first: a comfortable leg away, notable, and ideally over a border */
@@ -151,7 +170,8 @@ function rankCandidates(
   burgs: Burg[],
   visited: Set<number>,
   band: [number, number],
-  archetype: JourneyArchetype
+  archetype: JourneyArchetype,
+  R?: RandomKit
 ): Burg[] {
   const [minLeg, maxLeg] = band;
   const bandMid = (minLeg + maxLeg) / 2;
@@ -173,7 +193,7 @@ function rankCandidates(
     const sailable = burg.port && current.port;
     if (burg.port) score += sailable ? sea * 3 : sea;
     if (!sailable) score *= 1 - sea * 0.8;
-    score *= 0.5 + Math.random();
+    score *= 0.5 + jitter(R);
 
     const distance = Math.hypot(burg.x - current.x, burg.y - current.y);
     if (distance >= minLeg && distance <= maxLeg) inBand.push({ burg, score });
@@ -192,15 +212,21 @@ function rankCandidates(
  * The roll decides the leg; the rest are there for when the map refuses — an inland pair
  * for a party of sailors, a lake crossing with no port on the far side.
  */
-function buildLeg(pathfinder: JourneyPathfinder, archetype: JourneyArchetype, from: Burg, to: Burg): PlannedLeg | null {
-  for (const domain of rollDomains(archetype)) {
+function buildLeg(
+  pathfinder: JourneyPathfinder,
+  archetype: JourneyArchetype,
+  from: Burg,
+  to: Burg,
+  R?: RandomKit
+): PlannedLeg | null {
+  for (const domain of rollDomains(archetype, R)) {
     // a water leg needs somewhere to tie up at both ends; land and air are only refused by the path
     if (domain === "water" && !(from.port && to.port)) continue;
 
-    const transport = resolveTransport(archetype, domain);
+    const transport = resolveTransport(archetype, domain, R);
     if (!transport) continue;
 
-    for (const avoidRoads of roadPreference(archetype, domain)) {
+    for (const avoidRoads of roadPreference(archetype, domain, R)) {
       const { points, distance, errorCode } = pathfinder.findPath(from.cell, to.cell, domain, { avoidRoads });
       if (errorCode || points.length < 2 || !pathfinder.isValidPath(points, domain)) continue;
 
@@ -212,12 +238,12 @@ function buildLeg(pathfinder: JourneyPathfinder, archetype: JourneyArchetype, fr
 }
 
 /** The party's domains in the order it would try them: a weighted shuffle, so weight decides how often */
-function rollDomains(archetype: JourneyArchetype): TravelDomain[] {
+function rollDomains(archetype: JourneyArchetype, R?: RandomKit): TravelDomain[] {
   const remaining: Record<string, number> = { ...archetype.domains };
   const order: TravelDomain[] = [];
 
   while (Object.keys(remaining).length) {
-    const domain = rw(remaining) as TravelDomain;
+    const domain = pickWeighted(R, remaining) as TravelDomain;
     order.push(domain);
     delete remaining[domain];
   }
@@ -226,23 +252,23 @@ function rollDomains(archetype: JourneyArchetype): TravelDomain[] {
 }
 
 /** Off-road is a land habit: a party that takes to the wild still falls back to the roads */
-function roadPreference(archetype: JourneyArchetype, domain: TravelDomain): boolean[] {
+function roadPreference(archetype: JourneyArchetype, domain: TravelDomain, R?: RandomKit): boolean[] {
   if (domain !== "land") return [false];
-  return P(archetype.offRoad) ? [true, false] : [false];
+  return roll(R, archetype.offRoad) ? [true, false] : [false];
 }
 
 /**
  * The party's rolled preference if the map still has it, then any other type it would have taken,
- * and only then the most modest type of the domain. The last resort matters: falling back to the
- * first type of a domain would put a fantasy party in whatever sits at the top of the list.
+ * and only then the most modest type of the domain. The last resort matters: falling back to
+ * the first type of a domain would put a fantasy party in whatever sits at the top of the list.
  */
-function resolveTransport(archetype: JourneyArchetype, domain: TravelDomain): Transport | undefined {
+function resolveTransport(archetype: JourneyArchetype, domain: TravelDomain, R?: RandomKit): Transport | undefined {
   const inDomain: Transport[] = Transports.all.filter(type => type.domain === domain);
   if (!inDomain.length) return undefined;
 
   const weights = archetype.transports[domain] ?? {};
   const byName = (name: string) => inDomain.find(type => type.name === name);
-  const preferred = Object.keys(weights).length ? byName(rw(weights)) : undefined;
+  const preferred = Object.keys(weights).length ? byName(pickWeighted(R, weights)) : undefined;
   if (preferred) return preferred;
 
   for (const name of Object.keys(weights)) {
@@ -272,40 +298,44 @@ function crossesWater(archetype: JourneyArchetype): boolean {
 }
 
 /** Lore words, drawn fresh from the pools each time a token comes up */
-const LORE_WORDS: Record<string, () => string> = {
-  rank: () => ra(RANKS),
-  company: () => ra(COMPANY_ADJECTIVES),
-  banner: () => ra(BANNERS),
-  cargo: () => ra(CARGO),
-  beast: () => ra(BEASTS),
-  relic: () => `${ra(COMPANY_ADJECTIVES)} ${ra(RELICS)}`,
-  tavern: () => `The ${ra(TAVERN_QUALIFIERS)} ${ra(TAVERN_SUBJECTS)}`
+const LORE_WORDS: Record<string, (R?: RandomKit) => string> = {
+  rank: R => pick(R, RANKS),
+  company: R => pick(R, COMPANY_ADJECTIVES),
+  banner: R => pick(R, BANNERS),
+  cargo: R => pick(R, CARGO),
+  beast: R => pick(R, BEASTS),
+  relic: R => `${pick(R, COMPANY_ADJECTIVES)} ${pick(R, RELICS)}`,
+  tavern: R => `The ${pick(R, TAVERN_QUALIFIERS)} ${pick(R, TAVERN_SUBJECTS)}`
 };
 
 /** Pick one of the templates and fill its {tokens} */
-function phrase(templates: string[], context: Record<string, string> = {}): string {
-  return ra(templates).replace(/{(\w+)}/g, (token, name: string) => context[name] ?? LORE_WORDS[name]?.() ?? token);
+function phrase(templates: string[], context: Record<string, string> = {}, R?: RandomKit): string {
+  return pick(R, templates).replace(
+    /{(\w+)}/g,
+    (token, name: string) => context[name] ?? LORE_WORDS[name]?.(R) ?? token
+  );
 }
 
 function buildSegments(
   pathfinder: JourneyPathfinder,
   archetype: JourneyArchetype,
-  legs: PlannedLeg[]
+  legs: PlannedLeg[],
+  R?: RandomKit
 ): JourneySegment[] {
   const stayType = Transports.getByDomain("stay");
 
   const plans = legs.map((leg, index) => ({
     leg,
-    harborWait: Boolean(stayType) && leg.domain === "water" && P(HARBOR_WAIT_CHANCE),
+    harborWait: Boolean(stayType) && leg.domain === "water" && roll(R, HARBOR_WAIT_CHANCE),
     // a party already off the road is far likelier to sleep beside it
     camp:
       Boolean(stayType) &&
       leg.points.length >= MIN_SPLIT_POINTS &&
-      P(leg.avoidRoads ? archetype.camp : archetype.camp / 2),
-    rest: Boolean(stayType) && index < legs.length - 1 && P(archetype.rest)
+      roll(R, leg.avoidRoads ? archetype.camp : archetype.camp / 2),
+    rest: Boolean(stayType) && index < legs.length - 1 && roll(R, archetype.rest)
   }));
 
-  const muster = Boolean(stayType) && P(MUSTER_CHANCE);
+  const muster = Boolean(stayType) && roll(R, MUSTER_CHANCE);
   // a long route with no pause anywhere is the bare A→B line this generator exists to replace;
   // a single hop is allowed to be exactly that
   if (stayType && legs.length > 1 && !muster && !plans.some(plan => plan.harborWait || plan.camp || plan.rest)) {
@@ -324,8 +354,8 @@ function buildSegments(
   };
 
   if (muster) {
-    const name = phrase(HALT_NAMES.muster, { place: burgName(legs[0].from) });
-    commit([makeStay(stayType!, legs[0].from.cell, name, rand(6, 24))]);
+    const name = phrase(HALT_NAMES.muster, { place: burgName(legs[0].from) }, R);
+    commit([makeStay(stayType!, legs[0].from.cell, name, rollInt(R, 6, 24))]);
   }
 
   for (const [index, plan] of plans.entries()) {
@@ -339,24 +369,26 @@ function buildSegments(
     if (plan.harborWait) {
       // a party of sailors is waiting on its own ship, not on a berth to be found
       const pool = primaryDomain(archetype) === "water" ? HALT_NAMES.castingOff : HALT_NAMES.harborWait;
-      const name = phrase(pool, { from });
-      group.push(makeStay(stayType!, leg.from.cell, name, rand(6, 30)));
+      const name = phrase(pool, { from }, R);
+      group.push(makeStay(stayType!, leg.from.cell, name, rollInt(R, 6, 30)));
     }
 
-    const split = plan.camp ? splitLeg(pathfinder, leg) : null;
-    const wild = describeWild(split?.campCell ?? leg.points[Math.floor(leg.points.length / 2)][2]);
+    const split = plan.camp ? splitLeg(pathfinder, leg, R) : null;
+    const wild = describeWild(split?.campCell ?? leg.points[Math.floor(leg.points.length / 2)][2], R);
     const naming = { archetype, leg, from, to, wild, isFirst, isLast };
 
     if (split) {
-      group.push(makeTravel(leg, split.first, nameTravel({ ...naming, part: "first" })));
-      group.push(makeStay(stayType!, split.campCell, nameHalt(archetype, leg, split.campCell, wild), rand(6, 12)));
-      group.push(makeTravel(leg, split.second, nameTravel({ ...naming, part: "second" })));
+      group.push(makeTravel(leg, split.first, nameTravel({ ...naming, part: "first" }, R)));
+      group.push(
+        makeStay(stayType!, split.campCell, nameHalt(archetype, leg, split.campCell, wild, R), rollInt(R, 6, 12))
+      );
+      group.push(makeTravel(leg, split.second, nameTravel({ ...naming, part: "second" }, R)));
     } else {
-      group.push(makeTravel(leg, leg, nameTravel({ ...naming, part: "whole" })));
+      group.push(makeTravel(leg, leg, nameTravel({ ...naming, part: "whole" }, R)));
     }
 
     if (plan.rest)
-      group.push(makeStay(stayType!, leg.to.cell, phrase(archetype.stopover, { place: to }), 12 * rand(1, 3)));
+      group.push(makeStay(stayType!, leg.to.cell, phrase(archetype.stopover, { place: to }, R), 12 * rollInt(R, 1, 3)));
 
     if (!commit(group)) break;
   }
@@ -366,10 +398,11 @@ function buildSegments(
 
 function splitLeg(
   pathfinder: JourneyPathfinder,
-  leg: PlannedLeg
+  leg: PlannedLeg,
+  R?: RandomKit
 ): { first: PathSlice; second: PathSlice; campCell: number } | null {
   const count = leg.points.length;
-  const index = rand(Math.floor(count * SPLIT_BAND[0]), Math.floor(count * SPLIT_BAND[1]));
+  const index = rollInt(R, Math.floor(count * SPLIT_BAND[0]), Math.floor(count * SPLIT_BAND[1]));
   if (index < 1 || index > count - 2) return null;
 
   const first = leg.points.slice(0, index + 1);
@@ -416,21 +449,25 @@ function makeStay(stayType: Transport, cellId: number, name: string, duration: n
   };
 }
 
-function titleFor(archetype: JourneyArchetype, legs: PlannedLeg[]): string {
+function titleFor(archetype: JourneyArchetype, legs: PlannedLeg[], R?: RandomKit): string {
   const origin = legs[0].from;
   const destination = legs[legs.length - 1].to;
   // a title that names the country crossed wants land: "Survey of the open water" says nothing
   const namedLeg = legs.find(leg => leg.domain === "land") ?? legs[Math.floor(legs.length / 2)];
   const middle = namedLeg.points[Math.floor(namedLeg.points.length / 2)][2];
 
-  return phrase(archetype.title, {
-    hero: personName(origin),
-    origin: burgName(origin),
-    destination: burgName(destination),
-    destinationAdjective: getAdjective(pack.states?.[destination.state ?? 0]?.name || burgName(destination)),
-    // titles supply their own article ("to the ..."), so drop the one describeWater adds
-    wild: namedLeg.domain === "land" ? describeWild(middle) : describeWater(namedLeg).replace(/^the /, "")
-  });
+  return phrase(
+    archetype.title,
+    {
+      hero: personName(origin, R),
+      origin: burgName(origin),
+      destination: burgName(destination),
+      destinationAdjective: adjective(R, pack.states?.[destination.state ?? 0]?.name || burgName(destination)),
+      // titles supply their own article ("to the ..."), so drop the one describeWater adds
+      wild: namedLeg.domain === "land" ? describeWild(middle, R) : describeWater(namedLeg).replace(/^the /, "")
+    },
+    R
+  );
 }
 
 interface TravelNaming {
@@ -445,48 +482,48 @@ interface TravelNaming {
   part: "whole" | "first" | "second";
 }
 
-function nameTravel({ archetype, leg, from, to, wild, isFirst, isLast, part }: TravelNaming): string {
+function nameTravel({ archetype, leg, from, to, wild, isFirst, isLast, part }: TravelNaming, R?: RandomKit): string {
   const context = { from, to, wild };
 
-  if (leg.domain === "air") return phrase(LEG_NAMES.air[part], context);
-  if (leg.domain === "water") return phrase(LEG_NAMES.water[part], { ...context, water: describeWater(leg) });
-  if (part !== "whole") return phrase(LEG_NAMES.land[part], context);
+  if (leg.domain === "air") return phrase(LEG_NAMES.air[part], context, R);
+  if (leg.domain === "water") return phrase(LEG_NAMES.water[part], { ...context, water: describeWater(leg) }, R);
+  if (part !== "whole") return phrase(LEG_NAMES.land[part], context, R);
 
   // the closing leg names where the party ends up, however it got there
-  if (leg.avoidRoads) return phrase(isLast ? LEG_NAMES.land.offRoadLast : LEG_NAMES.land.offRoad, context);
-  if (isFirst) return phrase(LEG_NAMES.land.opening, context);
-  if (isLast) return phrase(LEG_NAMES.land.closing, context);
+  if (leg.avoidRoads) return phrase(isLast ? LEG_NAMES.land.offRoadLast : LEG_NAMES.land.offRoad, context, R);
+  if (isFirst) return phrase(LEG_NAMES.land.opening, context, R);
+  if (isLast) return phrase(LEG_NAMES.land.closing, context, R);
   // half the time the party names the leg in its own voice, if it has one
-  if (archetype.leg && P(0.5)) return phrase(archetype.leg, context);
-  return phrase(LEG_NAMES.land.whole, context);
+  if (archetype.leg && roll(R, 0.5)) return phrase(archetype.leg, context, R);
+  return phrase(LEG_NAMES.land.whole, context, R);
 }
 
 /** A night broken into a leg: at anchor at sea, in a camp on land */
-function nameHalt(archetype: JourneyArchetype, leg: PlannedLeg, cellId: number, wild: string): string {
+function nameHalt(archetype: JourneyArchetype, leg: PlannedLeg, cellId: number, wild: string, R?: RandomKit): string {
   const label = cellPlacePhrase(cellId); // "at Redgate" / "near Redgate", or null out in the wild
 
   if (leg.domain === "water") {
     const names = label ? HALT_NAMES.anchoredNear : HALT_NAMES.anchored;
-    return phrase(names, { label: label ?? "", water: describeWater(leg) });
+    return phrase(names, { label: label ?? "", water: describeWater(leg) }, R);
   }
 
   // near something worth naming, the party is as likely to say where it slept as how
-  if (label) return phrase([...HALT_NAMES.campNear, ra(archetype.bivouac)], { label, wild });
-  return phrase(archetype.bivouac, { wild });
+  if (label) return phrase([...HALT_NAMES.campNear, pick(R, archetype.bivouac)], { label, wild }, R);
+  return phrase(archetype.bivouac, { wild }, R);
 }
 
-function personName(burg: Burg): string {
+function personName(burg: Burg, R?: RandomKit): string {
   const culture = burg.culture;
-  if (culture === undefined || !pack.cultures?.[culture]) return ra(NAMELESS);
-  return Names.getCultureShort(culture) || ra(NAMELESS);
+  if (culture === undefined || !pack.cultures?.[culture]) return pick(R, NAMELESS);
+  return Names.getCultureShort(culture, R) || pick(R, NAMELESS);
 }
 
 const burgName = (burg: Burg): string => burg.name || `Burg ${burg.i}`;
 
-function describeWild(cellId: number): string {
+function describeWild(cellId: number, R?: RandomKit): string {
   const height = pack.cells.h[cellId];
-  if (height >= 70) return ra(HIGHLAND_TERMS);
-  if (height >= 50) return ra(UPLAND_TERMS);
+  if (height >= 70) return pick(R, HIGHLAND_TERMS);
+  if (height >= 50) return pick(R, UPLAND_TERMS);
 
   const biome = pack.biomes?.[pack.cells.biome?.[cellId] ?? 0];
   if (!biome?.name) return UNKNOWN_WILD;

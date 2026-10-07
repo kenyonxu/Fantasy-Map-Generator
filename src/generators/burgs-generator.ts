@@ -399,7 +399,7 @@ class BurgModule {
     if (burg.culture !== state.culture) kinship -= 0.25;
 
     const type = burg.capital && (R ? R.P(0.2) : P(0.2)) ? "Capital" : burg.type === "Generic" ? "City" : burg.type;
-    burg.coa = Emblems.generate(stateCOA, kinship, null, type);
+    burg.coa = Emblems.generate(stateCOA, kinship, null, type, R);
     burg.coa.shield = Emblems.getShield(burg.culture!, burg.state!);
   }
 

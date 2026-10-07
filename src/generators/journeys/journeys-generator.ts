@@ -2,6 +2,7 @@ import { DEFAULT_JOURNEY_TYPE } from "@/data/journey-lore";
 import type { Journey, JourneyPoint, JourneySegment } from "@/types/Journey";
 import { getDistanceUnitRatio, isLand } from "@/utils";
 import { getCardinalColor, requireFill } from "@/utils/colorUtils";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireName } from "@/utils/validationUtils";
 import type { Burg } from "../burgs-generator";
 import type { Route } from "../routes-generator";
@@ -52,12 +53,12 @@ class JourneysModule {
   generate(): void {
     this.sync();
     if (pack.journeys.length) return;
-    this.addRandom();
+    this.addRandom(makeRandom(options.map.seed));
   }
 
-  addRandom(): Journey | null {
+  addRandom(R?: RandomKit): Journey | null {
     this.sync();
-    const story = generateStoryJourney(this) ?? this.buildFallbackJourney();
+    const story = generateStoryJourney(this, R) ?? this.buildFallbackJourney();
     if (!story) return null;
 
     const i = this.getNextId(pack.journeys);

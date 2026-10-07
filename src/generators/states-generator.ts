@@ -290,7 +290,7 @@ class StatesModule {
           ? "Generic"
           : pack.cultures[culture].type;
       const expansionism = rn(R.next() * options.generation.states.sizeVariety + 1, 1);
-      const coa = Emblems.generate(capital.coa, 0.3, null, pack.cultures[culture].type);
+      const coa = Emblems.generate(capital.coa, 0.3, null, pack.cultures[culture].type, R);
       coa.shield = capital.coa?.shield;
       newStates.push({
         i: stateId,
@@ -323,7 +323,7 @@ class StatesModule {
         burg.name!.length < 9 && each5th(burg.cell) ? burg.name! : Names.getCultureShort(burg.culture!, R);
       const name = Names.getState(basename, burg.culture!, undefined, R);
       const type = pack.cultures[burg.culture!].type;
-      const coa = Emblems.generate(null, null, null, type);
+      const coa = Emblems.generate(null, null, null, type, R);
       coa.shield = Emblems.getShield(burg.culture!);
       states.push({
         i: burg.i,

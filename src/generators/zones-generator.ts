@@ -1,5 +1,6 @@
 import { max, mean } from "d3";
 import { requireColor } from "@/utils/colorUtils";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireName } from "@/utils/validationUtils";
 import { gauss, getAdjective, P, ra, rand, rw } from "../utils";
 import { Population } from "./population-generator";
@@ -7,6 +8,17 @@ import { Population } from "./population-generator";
 declare global {
   var Zones: ZonesModule;
 }
+
+// without a kit, editor callers draw the ambient global stream
+const roll = (R: RandomKit | undefined, probability: number): boolean => (R ? R.P(probability) : P(probability));
+const pick = <T>(R: RandomKit | undefined, array: ArrayLike<T>): T => (R ? R.ra(array) : ra(array));
+const pickWeighted = (R: RandomKit | undefined, object: Record<string, number>): string =>
+  R ? R.rw(object) : rw(object);
+const rollInt = (R: RandomKit | undefined, min?: number, max?: number): number =>
+  R ? R.rand(min, max) : rand(min, max);
+const rollGauss = (R: RandomKit | undefined, expected: number, deviation: number, min: number, max: number): number =>
+  R ? R.gauss(expected, deviation, min, max) : gauss(expected, deviation, min, max);
+const adjective = (R: RandomKit | undefined, noun: string): string => getAdjective(noun, R ? R.next : Math.random);
 
 export interface Zone {
   i: number;
@@ -18,7 +30,7 @@ export interface Zone {
   note?: string;
 }
 
-type ZoneGenerator = (usedCells: Uint8Array) => void;
+type ZoneGenerator = (usedCells: Uint8Array, R?: RandomKit) => void;
 
 interface ZoneConfig {
   quantity: number;
@@ -30,17 +42,17 @@ class ZonesModule {
 
   constructor() {
     this.config = {
-      invasion: { quantity: 2, generate: u => this.addInvasion(u) },
-      rebels: { quantity: 1.5, generate: u => this.addRebels(u) },
-      proselytism: { quantity: 1.6, generate: u => this.addProselytism(u) },
-      crusade: { quantity: 1.6, generate: u => this.addCrusade(u) },
-      disease: { quantity: 1.4, generate: u => this.addDisease(u) },
-      disaster: { quantity: 1, generate: u => this.addDisaster(u) },
-      eruption: { quantity: 1, generate: u => this.addEruption(u) },
-      avalanche: { quantity: 0.8, generate: u => this.addAvalanche(u) },
-      fault: { quantity: 1, generate: u => this.addFault(u) },
-      flood: { quantity: 1, generate: u => this.addFlood(u) },
-      tsunami: { quantity: 1, generate: u => this.addTsunami(u) }
+      invasion: { quantity: 2, generate: (u, R) => this.addInvasion(u, R) },
+      rebels: { quantity: 1.5, generate: (u, R) => this.addRebels(u, R) },
+      proselytism: { quantity: 1.6, generate: (u, R) => this.addProselytism(u, R) },
+      crusade: { quantity: 1.6, generate: (u, R) => this.addCrusade(u, R) },
+      disease: { quantity: 1.4, generate: (u, R) => this.addDisease(u, R) },
+      disaster: { quantity: 1, generate: (u, R) => this.addDisaster(u, R) },
+      eruption: { quantity: 1, generate: (u, R) => this.addEruption(u, R) },
+      avalanche: { quantity: 0.8, generate: (u, R) => this.addAvalanche(u, R) },
+      fault: { quantity: 1, generate: (u, R) => this.addFault(u, R) },
+      flood: { quantity: 1, generate: (u, R) => this.addFlood(u, R) },
+      tsunami: { quantity: 1, generate: (u, R) => this.addTsunami(u, R) }
     };
   }
 
@@ -114,18 +126,18 @@ class ZonesModule {
     this.generate(globalModifier);
   }
 
-  generate(globalModifier = 1) {
+  generate(globalModifier = 1, R: RandomKit = makeRandom(options.map.seed)) {
     const usedCells = new Uint8Array(pack.cells.i.length);
     pack.zones = [];
 
     Object.values(this.config).forEach(type => {
       const expectedNumber = type.quantity * globalModifier;
-      let number = gauss(expectedNumber, expectedNumber / 2, 0, 100);
-      while (number--) type.generate(usedCells);
+      let number = rollGauss(R, expectedNumber, expectedNumber / 2, 0, 100);
+      while (number--) type.generate(usedCells, R);
     });
   }
 
-  private addInvasion(usedCells: Uint8Array) {
+  private addInvasion(usedCells: Uint8Array, R?: RandomKit) {
     const { cells, states } = pack;
 
     const ongoingConflicts = states
@@ -133,7 +145,7 @@ class ZonesModule {
       .flatMap(s => s.campaigns!)
       .filter(c => !c.end);
     if (!ongoingConflicts.length) return;
-    const { defender, attacker } = ra(ongoingConflicts);
+    const { defender, attacker } = pick(R, ongoingConflicts);
 
     const borderCells = cells.i.filter(cellId => {
       if (usedCells[cellId]) return false;
@@ -141,15 +153,15 @@ class ZonesModule {
       return cells.c[cellId].some(c => cells.state[c] === attacker);
     });
 
-    const startCell = ra(borderCells);
+    const startCell = pick(R, borderCells);
     if (startCell === undefined) return;
 
     const invasionCells: number[] = [];
     const queue = [startCell];
-    const maxCells = rand(5, 30);
+    const maxCells = rollInt(R, 5, 30);
 
     while (queue.length) {
-      const cellId = P(0.4) ? queue.shift()! : queue.pop()!;
+      const cellId = roll(R, 0.4) ? queue.shift()! : queue.pop()!;
       invasionCells.push(cellId);
       if (invasionCells.length >= maxCells) break;
 
@@ -161,7 +173,7 @@ class ZonesModule {
       });
     }
 
-    const subtype = rw({
+    const subtype = pickWeighted(R, {
       Invasion: 5,
       Occupation: 4,
       Conquest: 3,
@@ -177,7 +189,7 @@ class ZonesModule {
       Raid: 1,
       Skirmishes: 1
     });
-    const name = `${getAdjective(states[attacker].name)} ${subtype}`;
+    const name = `${adjective(R, states[attacker].name)} ${subtype}`;
 
     pack.zones.push({
       i: pack.zones.length,
@@ -188,13 +200,19 @@ class ZonesModule {
     });
   }
 
-  private addRebels(usedCells: Uint8Array) {
+  private addRebels(usedCells: Uint8Array, R?: RandomKit) {
     const { cells, states } = pack;
 
-    const state = ra(states.filter(s => s.i && !s.removed && s.neighbors?.some(Boolean)));
+    const state = pick(
+      R,
+      states.filter(s => s.i && !s.removed && s.neighbors?.some(Boolean))
+    );
     if (!state) return;
 
-    const neibStateId = ra(state.neighbors!.filter((n: number) => n && !states[n].removed));
+    const neibStateId = pick(
+      R,
+      state.neighbors!.filter((n: number) => n && !states[n].removed)
+    );
     if (!neibStateId) return;
 
     const cellsArray: number[] = [];
@@ -203,7 +221,7 @@ class ZonesModule {
       i => cells.state[i] === state.i && cells.c[i].some(c => cells.state[c] === neibStateId)
     );
     if (borderCellId) queue.push(borderCellId);
-    const maxCells = rand(10, 30);
+    const maxCells = rollInt(R, 10, 30);
 
     while (queue.length) {
       const cellId = queue.shift()!;
@@ -219,7 +237,7 @@ class ZonesModule {
       });
     }
 
-    const rebels = rw({
+    const rebels = pickWeighted(R, {
       Rebels: 5,
       Insurrection: 2,
       Mutineers: 1,
@@ -234,7 +252,7 @@ class ZonesModule {
       Conspiracy: 1
     });
 
-    const name = `${getAdjective(states[neibStateId].name)} ${rebels}`;
+    const name = `${adjective(R, states[neibStateId].name)} ${rebels}`;
     pack.zones.push({
       i: pack.zones.length,
       name,
@@ -244,11 +262,11 @@ class ZonesModule {
     });
   }
 
-  private addProselytism(usedCells: Uint8Array) {
+  private addProselytism(usedCells: Uint8Array, R?: RandomKit) {
     const { cells, religions } = pack;
 
     const organizedReligions = religions.filter(r => r.i && !r.removed && r.type === "Organized");
-    const religion = ra(organizedReligions);
+    const religion = pick(R, organizedReligions);
     if (!religion) return;
 
     const targetBorderCells = cells.i.filter(
@@ -258,13 +276,13 @@ class ZonesModule {
         cells.religion[i] !== religion.i &&
         cells.c[i].some(c => cells.religion[c] === religion.i)
     );
-    const startCell = ra(targetBorderCells);
+    const startCell = pick(R, targetBorderCells);
     if (!startCell) return;
 
     const targetReligionId = cells.religion[startCell];
     const proselytismCells: number[] = [];
     const queue = [startCell];
-    const maxCells = rand(10, 30);
+    const maxCells = rollInt(R, 10, 30);
 
     while (queue.length) {
       const cellId = queue.shift()!;
@@ -280,7 +298,7 @@ class ZonesModule {
       });
     }
 
-    const name = `${getAdjective(religion.name.split(" ")[0])} Proselytism`;
+    const name = `${adjective(R, religion.name.split(" ")[0])} Proselytism`;
     pack.zones.push({
       i: pack.zones.length,
       name,
@@ -290,20 +308,20 @@ class ZonesModule {
     });
   }
 
-  private addCrusade(usedCells: Uint8Array) {
+  private addCrusade(usedCells: Uint8Array, R?: RandomKit) {
     const { cells, religions } = pack;
 
     const heresies = religions.filter(r => !r.removed && r.type === "Heresy");
     if (!heresies.length) return;
 
-    const heresy = ra(heresies);
+    const heresy = pick(R, heresies);
     const crusadeCells = cells.i.filter(i => !usedCells[i] && cells.religion[i] === heresy.i);
     if (!crusadeCells.length) return;
     for (const i of crusadeCells) {
       usedCells[i] = 1;
     }
 
-    const name = `${getAdjective(heresy.name.split(" ")[0])} Crusade`;
+    const name = `${adjective(R, heresy.name.split(" ")[0])} Crusade`;
     pack.zones.push({
       i: pack.zones.length,
       name,
@@ -313,15 +331,18 @@ class ZonesModule {
     });
   }
 
-  private addDisease(usedCells: Uint8Array) {
+  private addDisease(usedCells: Uint8Array, R?: RandomKit) {
     const { cells, burgs } = pack;
 
-    const burg = ra(burgs.filter(b => !usedCells[b.cell] && b.i && !b.removed));
+    const burg = pick(
+      R,
+      burgs.filter(b => !usedCells[b.cell] && b.i && !b.removed)
+    );
     if (!burg) return;
 
     const cellsArray: number[] = [];
     const cost: number[] = [];
-    const maxCells = rand(20, 40);
+    const maxCells = rollInt(R, 20, 40);
 
     const queue = new FlatQueue();
     queue.push({ e: burg.cell, p: 0 }, 0);
@@ -343,14 +364,14 @@ class ZonesModule {
       });
     }
 
-    const colorName = this.getDiseaseName("color");
-    const animalName = this.getDiseaseName("animal");
-    const adjectiveName = this.getDiseaseName("adjective");
+    const colorName = this.getDiseaseName(R, "color");
+    const animalName = this.getDiseaseName(R, "animal");
+    const adjectiveName = this.getDiseaseName(R, "adjective");
 
-    const model = rw({ color: 2, animal: 1, adjective: 1 });
+    const model = pickWeighted(R, { color: 2, animal: 1, adjective: 1 });
     const prefix = model === "color" ? colorName : model === "animal" ? animalName : adjectiveName;
 
-    const disease = rw({
+    const disease = pickWeighted(R, {
       Fever: 5,
       Plague: 3,
       Cough: 3,
@@ -376,9 +397,9 @@ class ZonesModule {
     });
   }
 
-  private getDiseaseName(model: "color" | "animal" | "adjective"): string {
+  private getDiseaseName(R: RandomKit | undefined, model: "color" | "animal" | "adjective"): string {
     if (model === "color")
-      return ra([
+      return pick(R, [
         "Amber",
         "Azure",
         "Black",
@@ -401,7 +422,7 @@ class ZonesModule {
         "Yellow"
       ]);
     if (model === "animal")
-      return ra([
+      return pick(R, [
         "Ape",
         "Bear",
         "Bird",
@@ -425,7 +446,7 @@ class ZonesModule {
         "Worm",
         "Wyrm"
       ]);
-    return ra([
+    return pick(R, [
       "Blind",
       "Bloody",
       "Brutal",
@@ -449,16 +470,19 @@ class ZonesModule {
     ]);
   }
 
-  private addDisaster(usedCells: Uint8Array) {
+  private addDisaster(usedCells: Uint8Array, R?: RandomKit) {
     const { cells, burgs } = pack;
 
-    const burg = ra(burgs.filter(b => !usedCells[b.cell] && b.i && !b.removed));
+    const burg = pick(
+      R,
+      burgs.filter(b => !usedCells[b.cell] && b.i && !b.removed)
+    );
     if (!burg) return;
     usedCells[burg.cell] = 1;
 
     const cellsArray: number[] = [];
     const cost: number[] = [];
-    const maxCells = rand(5, 25);
+    const maxCells = rollInt(R, 5, 25);
 
     const queue = new FlatQueue();
     queue.push({ e: burg.cell, p: 0 }, 0);
@@ -469,7 +493,7 @@ class ZonesModule {
       usedCells[next.e] = 1;
 
       cells.c[next.e].forEach(e => {
-        const c = rand(1, 10);
+        const c = rollInt(R, 1, 10);
         const p = next.p + c;
         if (p > maxCells) return;
 
@@ -480,7 +504,7 @@ class ZonesModule {
       });
     }
 
-    const type = rw({
+    const type = pickWeighted(R, {
       Famine: 5,
       Drought: 3,
       Earthquake: 3,
@@ -490,7 +514,7 @@ class ZonesModule {
       Storms: 1,
       Blight: 1
     });
-    const name = `${getAdjective(burg.name!)} ${type}`;
+    const name = `${adjective(R, burg.name!)} ${type}`;
     pack.zones.push({
       i: pack.zones.length,
       name,
@@ -500,7 +524,7 @@ class ZonesModule {
     });
   }
 
-  private addEruption(usedCells: Uint8Array) {
+  private addEruption(usedCells: Uint8Array, R?: RandomKit) {
     const { cells, markers } = pack;
 
     const volcanoe = markers.find(m => m.type === "volcanoes" && !usedCells[m.cell]);
@@ -512,10 +536,10 @@ class ZonesModule {
 
     const cellsArray: number[] = [];
     const queue = [volcanoe.cell];
-    const maxCells = rand(10, 30);
+    const maxCells = rollInt(R, 10, 30);
 
     while (queue.length) {
-      const cellId = P(0.5) ? queue.shift()! : queue.pop()!;
+      const cellId = roll(R, 0.5) ? queue.shift()! : queue.pop()!;
       cellsArray.push(cellId);
       if (cellsArray.length >= maxCells) break;
 
@@ -535,21 +559,21 @@ class ZonesModule {
     });
   }
 
-  private addAvalanche(usedCells: Uint8Array) {
+  private addAvalanche(usedCells: Uint8Array, R?: RandomKit) {
     const { cells } = pack;
 
     const routeCells = cells.i.filter(i => !usedCells[i] && Routes.isConnected(i) && cells.h[i] >= 70);
     if (!routeCells.length) return;
 
-    const startCell = ra(routeCells);
+    const startCell = pick(R, routeCells);
     usedCells[startCell] = 1;
 
     const cellsArray: number[] = [];
     const queue = [startCell];
-    const maxCells = rand(3, 15);
+    const maxCells = rollInt(R, 3, 15);
 
     while (queue.length) {
-      const cellId = P(0.3) ? queue.shift()! : queue.pop()!;
+      const cellId = roll(R, 0.3) ? queue.shift()! : queue.pop()!;
       cellsArray.push(cellId);
       if (cellsArray.length >= maxCells) break;
 
@@ -560,7 +584,7 @@ class ZonesModule {
       });
     }
 
-    const name = `${getAdjective(Names.getCultureShort(cells.culture[startCell]))} Avalanche`;
+    const name = `${adjective(R, Names.getCultureShort(cells.culture[startCell], R))} Avalanche`;
     pack.zones.push({
       i: pack.zones.length,
       name,
@@ -570,18 +594,18 @@ class ZonesModule {
     });
   }
 
-  private addFault(usedCells: Uint8Array) {
+  private addFault(usedCells: Uint8Array, R?: RandomKit) {
     const cells = pack.cells;
 
     const elevatedCells = cells.i.filter(i => !usedCells[i] && cells.h[i] > 50 && cells.h[i] < 70);
     if (!elevatedCells.length) return;
 
-    const startCell = ra(elevatedCells);
+    const startCell = pick(R, elevatedCells);
     usedCells[startCell] = 1;
 
     const cellsArray: number[] = [];
     const queue = [startCell];
-    const maxCells = rand(3, 15);
+    const maxCells = rollInt(R, 3, 15);
 
     while (queue.length) {
       const cellId = queue.pop()!;
@@ -595,7 +619,7 @@ class ZonesModule {
       });
     }
 
-    const name = `${getAdjective(Names.getCultureShort(cells.culture[startCell]))} Fault`;
+    const name = `${adjective(R, Names.getCultureShort(cells.culture[startCell], R))} Fault`;
     pack.zones.push({
       i: pack.zones.length,
       name,
@@ -605,7 +629,7 @@ class ZonesModule {
     });
   }
 
-  private addFlood(usedCells: Uint8Array) {
+  private addFlood(usedCells: Uint8Array, R?: RandomKit) {
     const cells = pack.cells;
 
     const fl = cells.fl.filter(Boolean);
@@ -618,13 +642,13 @@ class ZonesModule {
     );
     if (!bigRiverCells.length) return;
 
-    const startCell = ra(bigRiverCells);
+    const startCell = pick(R, bigRiverCells);
     usedCells[startCell] = 1;
 
     const riverId = cells.r[startCell];
     const cellsArray: number[] = [];
     const queue = [startCell];
-    const maxCells = rand(5, 30);
+    const maxCells = rollInt(R, 5, 30);
 
     while (queue.length) {
       const cellId = queue.pop()!;
@@ -645,7 +669,7 @@ class ZonesModule {
       });
     }
 
-    const name = `${getAdjective(pack.burgs[cells.burg[startCell]].name!)} Flood`;
+    const name = `${adjective(R, pack.burgs[cells.burg[startCell]].name!)} Flood`;
     pack.zones.push({
       i: pack.zones.length,
       name,
@@ -655,7 +679,7 @@ class ZonesModule {
     });
   }
 
-  private addTsunami(usedCells: Uint8Array) {
+  private addTsunami(usedCells: Uint8Array, R?: RandomKit) {
     const { cells, features } = pack;
 
     const coastalCells = cells.i.filter(
@@ -663,12 +687,12 @@ class ZonesModule {
     );
     if (!coastalCells.length) return;
 
-    const startCell = ra(coastalCells);
+    const startCell = pick(R, coastalCells);
     usedCells[startCell] = 1;
 
     const cellsArray: number[] = [];
     const queue = [startCell];
-    const maxCells = rand(10, 30);
+    const maxCells = rollInt(R, 10, 30);
 
     while (queue.length) {
       const cellId = queue.shift()!;
@@ -684,7 +708,7 @@ class ZonesModule {
       });
     }
 
-    const name = `${getAdjective(Names.getCultureShort(cells.culture[startCell]))} Tsunami`;
+    const name = `${adjective(R, Names.getCultureShort(cells.culture[startCell], R))} Tsunami`;
     pack.zones.push({
       i: pack.zones.length,
       name,
