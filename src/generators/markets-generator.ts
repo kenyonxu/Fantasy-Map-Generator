@@ -1,6 +1,6 @@
-import Alea from "alea";
 import { quadtree } from "d3-quadtree";
 import { rn } from "@/utils";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { minmax } from "../utils";
 import { getColors, getRandomColor, requireFill } from "../utils/colorUtils";
 import type { Burg } from "./burgs-generator";
@@ -42,8 +42,8 @@ export class MarketsModule {
   }
 
   generate(regenerate: boolean = false): Market[] {
-    if (!regenerate) Math.random = Alea(options.map.seed);
-    const markets = this.createMarkets();
+    const R = regenerate ? undefined : makeRandom(options.map.seed);
+    const markets = this.createMarkets(R);
     this.expandMarkets(markets);
 
     pack.markets = markets;
@@ -52,14 +52,14 @@ export class MarketsModule {
     return markets;
   }
 
-  private createMarkets(): Market[] {
+  private createMarkets(R?: RandomKit): Market[] {
     // Score each burg by population; capitals and ports are weighted higher
     const scored = pack.burgs
       .map(burg => {
         let score = burg.population || 0;
         if (burg.capital) score *= 2.5;
         if (burg.port) score *= 1.2;
-        score *= Math.random() * 2 + 0.5; // add some noise
+        score *= (R ? R.next() : Math.random()) * 2 + 0.5; // add some noise
         return { burg, score };
       })
       .sort((a, b) => b.score - a.score);
@@ -89,7 +89,7 @@ export class MarketsModule {
       }
     }
 
-    const colors = getColors(markets.length);
+    const colors = getColors(markets.length, R?.next);
     markets.forEach((m, i) => {
       m.color = colors[i];
     });

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import Alea from "alea";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("GoodsModule", () => {
   let goodsModule: any;
@@ -127,5 +128,52 @@ describe("GoodsModule", () => {
       expect(placed).toHaveLength(6); // 2 goods, each capped at ceil(200 * 60 / 5000) = 3 cells
       expect(compiled).toBe(2); // one compile per good, not per placement
     });
+  });
+});
+
+describe("Goods.generate golden (PRNG)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // Golden for the PRNG injection: generate() must place the same goods whether its draws
+  // come from the ambient stream (pre-migration, seeded here) or the generator's own
+  // seed-bound kit (post-migration) - both are Alea over the seed, drawn in the same order.
+  it("reproduces the default catalogue placement from a fixed seed", async () => {
+    globalThis.TIME = false;
+    const { GoodsModule } = await import("./goods-generator");
+    const goodsModule = new GoodsModule();
+    globalThis.Goods = goodsModule as any;
+
+    const n = 60;
+    const col = (i: number) => i % 10;
+    const h = Array.from({ length: n }, (_, i) => 20 + ((i * 7) % 56)); // 20..75
+    globalThis.pack = {
+      goods: [], // force restoreDefaults() so the full default catalogue is placed
+      biomes: Array.from({ length: 20 }, (_, i) => ({ i, habitability: i === 11 ? 0 : 22 + i * 5 })),
+      features: [0, { i: 1, type: "land" }],
+      cells: {
+        i: Array.from({ length: n }, (_, i) => i),
+        biome: Array.from({ length: n }, (_, i) => (i % 12) as number),
+        h,
+        t: Array.from({ length: n }, (_, i) => (col(i) < 2 ? -1 : col(i) < 4 ? 1 : 2)),
+        r: Array.from({ length: n }, (_, i) => +(col(i) === 5 && h[i] < 50)),
+        g: Array.from({ length: n }, (_, i) => i % 6),
+        f: Array.from({ length: n }, () => 1)
+      }
+    } as any;
+    globalThis.grid = { cells: { temp: [24, 22, 19, 17, 15, 12] } } as any;
+
+    options.map.seed = "goods-gold";
+    vi.spyOn(Math, "random").mockImplementation(Alea("goods-gold") as () => number);
+
+    goodsModule.generate();
+
+    expect(Array.from(globalThis.pack.cells.good as Uint16Array)).toEqual([
+      0, 0, 16, 2, 0, 0, 1, 0, 0, 0, 0, 0, 34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 1, 29, 4, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 34, 0, 0, 13, 7, 0, 0, 0, 0
+    ]);
+    expect(globalThis.pack.goods[0].visible).toBe(true);
   });
 });

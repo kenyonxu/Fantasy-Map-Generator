@@ -4,8 +4,9 @@ import { Emblems } from "@/generators/emblems-generator";
 import type { Emblem } from "@/types/emblems";
 import { requireColor } from "@/utils/colorUtils";
 import { replaceWholeWord } from "@/utils/languageUtils";
+import { makeRandom } from "@/utils/random";
 import { requireName } from "@/utils/validationUtils";
-import { gauss, generateSeed, getMixedColor, getPolesOfInaccessibility, P, rand, rw } from "../utils";
+import { generateSeed, getMixedColor, getPolesOfInaccessibility, P } from "../utils";
 import type { Label } from "./labels-generator";
 import { Population } from "./population-generator";
 
@@ -83,7 +84,10 @@ class ProvinceModule {
 
   generate(regenerate = false, regenerateLockedStates = false) {
     const localSeed = regenerate ? generateSeed() : options.map.seed;
+    // Reseed the ambient stream on purpose: Rivers.specify() runs in the pipeline right after
+    // this step and reads it (documented PRNG exception, task ledger 2026-10-07-prng-injection).
     Math.random = Alea(localSeed);
+    const R = makeRandom(localSeed);
 
     const { cells, states, burgs } = pack;
     const provinces: Province[] = [0 as unknown as Province]; // 0 index is reserved for "no province"
@@ -108,7 +112,7 @@ class ProvinceModule {
     }
 
     const provincesRatio = options.generation.provinces.ratio;
-    const maxGrowth = provincesRatio === 100 ? 1000 : gauss(20, 5, 5, 100) * provincesRatio ** 0.5; // max growth
+    const maxGrowth = provincesRatio === 100 ? 1000 : R.gauss(20, 5, 5, 100) * provincesRatio ** 0.5; // max growth
 
     // generate provinces for selected burgs
     states.forEach(s => {
@@ -119,7 +123,7 @@ class ProvinceModule {
 
       const stateBurgs = burgs
         .filter(b => b.state === s.i && !b.removed && !provinceIds[b.cell]) // burgs in this state without province assigned
-        .map(burg => ({ burg: burg, score: burg.population! * gauss(1, 0.2, 0.5, 1.5, 3) }))
+        .map(burg => ({ burg: burg, score: burg.population! * R.gauss(1, 0.2, 0.5, 1.5, 3) }))
         .sort((a, b) => b.burg.capital! - a.burg.capital! || b.score - a.score) // capitals first, biggest population next
         .map(b => b.burg);
       if (stateBurgs.length < 2) return; // at least 2 provinces are required
@@ -132,15 +136,15 @@ class ProvinceModule {
         const center = stateBurgs[i].cell;
         const burg = stateBurgs[i];
         const c = stateBurgs[i].culture!;
-        const nameByBurg = P(0.5);
-        const name = nameByBurg ? stateBurgs[i].name! : Names.getState(Names.getCultureShort(c), c);
-        const formName = rw(form);
+        const nameByBurg = R.P(0.5);
+        const name = nameByBurg ? stateBurgs[i].name! : Names.getState(Names.getCultureShort(c, R), c, undefined, R);
+        const formName = R.rw(form);
         form[formName] += 10;
         const fullName = `${name} ${formName}`;
-        const color = getMixedColor(s.color!);
+        const color = getMixedColor(s.color!, undefined, undefined, R.next);
         const kinship = nameByBurg ? 0.8 : 0.4;
         const type = Burgs.getType(center, burg.port);
-        const coa = Emblems.generate(stateBurgs[i].coa, kinship, null, type);
+        const coa = Emblems.generate(stateBurgs[i].coa, kinship, null, type, R);
         coa.shield = Emblems.getShield(c, s.i);
 
         s.provinces.push(provinceId);
@@ -223,7 +227,7 @@ class ProvinceModule {
       const getColonyName = () => {
         if (colonyNamePool.length < 1) return null;
 
-        const index = rand(colonyNamePool.length - 1);
+        const index = R.rand(colonyNamePool.length - 1);
         const spliced = colonyNamePool.splice(index, 1);
         return spliced[0] ? `New ${spliced[0]}` : null;
       };
@@ -263,33 +267,33 @@ class ProvinceModule {
         // generate "wild" province name
         const c = cells.culture[center];
         const f = pack.features[cells.f[center]];
-        const color = getMixedColor(s.color!);
+        const color = getMixedColor(s.color!, undefined, undefined, R.next);
 
         const provCells = stateNoProvince.filter(i => provinceIds[i] === provinceId);
         const singleIsle = provCells.length === f.cells && !provCells.find(i => cells.f[i] !== f.i);
         const isleSubtype = !singleIsle && !provCells.find(i => pack.features[cells.f[i]].subtype !== "isle");
-        const colony = !singleIsle && !isleSubtype && P(0.5) && !isPassable(s.center, center);
+        const colony = !singleIsle && !isleSubtype && R.P(0.5) && !isPassable(s.center, center);
 
         const name = (() => {
-          const colonyName = colony && P(0.8) && getColonyName();
+          const colonyName = colony && R.P(0.8) && getColonyName();
           if (colonyName) return colonyName;
-          if (burgCell && P(0.5)) return burgs[burg].name;
-          return Names.getState(Names.getCultureShort(c), c);
+          if (burgCell && R.P(0.5)) return burgs[burg].name;
+          return Names.getState(Names.getCultureShort(c, R), c, undefined, R);
         })();
 
         const formName = (() => {
           if (singleIsle) return "Island";
           if (isleSubtype) return "Islands";
           if (colony) return "Colony";
-          return rw(this.forms.Wild);
+          return R.rw(this.forms.Wild);
         })();
 
         const fullName = `${name} ${formName}`;
 
-        const dominion = colony ? P(0.95) : singleIsle || isleSubtype ? P(0.7) : P(0.3);
+        const dominion = colony ? R.P(0.95) : singleIsle || isleSubtype ? R.P(0.7) : R.P(0.3);
         const kinship = dominion ? 0 : 0.4;
         const type = Burgs.getType(center, burgs[burg]?.port);
-        const coa = Emblems.generate(s.coa, kinship, dominion ? 1 : 0, type);
+        const coa = Emblems.generate(s.coa, kinship, dominion ? 1 : 0, type, R);
         coa.shield = Emblems.getShield(c, s.i);
 
         provinces.push({

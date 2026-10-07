@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import Alea from "alea";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Burg } from "./burgs-generator";
 import { type Market, MarketsModule } from "./markets-generator";
 
@@ -286,5 +287,94 @@ describe("MarketsModule", () => {
       expect(() => marketsModule.sync()).not.toThrow();
       expect(marketsModule.get(2)).toBe(market2);
     });
+  });
+});
+
+describe("Markets.generate golden (PRNG)", () => {
+  // Golden for the PRNG injection: generate() must place the same markets whether its draws
+  // (burg score noise + getColors) come from the ambient stream (pre-migration, seeded here)
+  // or the generator's own seed-bound kit (post-migration) - both Alea over options.map.seed.
+  it("reproduces markets, colors and territories from a fixed seed", async () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    });
+
+    globalThis.TIME = false;
+    // @ts-expect-error vendored UMD script without TypeScript declarations
+    (globalThis as any).FlatQueue = (await import("../../public/libs/flatqueue.js")).default;
+    const { MarketsModule: Module } = await import("./markets-generator");
+    const marketsModule = new Module();
+    globalThis.Markets = marketsModule as any;
+
+    const W = 12;
+    const H = 8;
+    const n = W * H;
+    const col = (i: number) => i % W;
+    const row = (i: number) => Math.floor(i / W);
+    const neighbors = (i: number) =>
+      [
+        [col(i) - 1, row(i)],
+        [col(i) + 1, row(i)],
+        [col(i), row(i) - 1],
+        [col(i), row(i) + 1]
+      ]
+        .filter(([c, r]) => c >= 0 && c < W && r >= 0 && r < H)
+        .map(([c, r]) => r * W + c);
+    const burgAt = (i: number, cell: number, population: number, capital = 0, port = 0) => ({
+      i,
+      cell,
+      x: col(cell) * 100,
+      y: row(cell) * 100,
+      population,
+      capital,
+      port,
+      state: 1
+    });
+    globalThis.pack = {
+      burgs: [
+        0,
+        burgAt(1, 15, 12000, 1),
+        burgAt(2, 45, 9000),
+        burgAt(3, 28, 4000),
+        burgAt(4, 60, 7000, 0, 1),
+        burgAt(5, 82, 3000)
+      ],
+      cells: {
+        i: Array.from({ length: n }, (_, i) => i),
+        c: Array.from({ length: n }, (_, i) => neighbors(i)),
+        h: Array.from({ length: n }, (_, i) => (row(i) === 0 ? 5 : 35)),
+        f: Array.from({ length: n }, () => 1),
+        state: Array.from({ length: n }, () => 1),
+        good: Array.from({ length: n }, (_, i) => (i % 3 === 0 ? 2 : 0))
+      },
+      markets: [],
+      deals: []
+    } as any;
+
+    options.map.seed = "markets-gold";
+    options.map.graph = { width: 180, height: 140, points: 10000 };
+    vi.spyOn(Math, "random").mockImplementation(Alea("markets-gold") as () => number);
+
+    marketsModule.generate();
+
+    expect(globalThis.pack.markets).toEqual([
+      { i: 1, centerBurgId: 1, color: "#80b1d3", goods: {} },
+      { i: 2, centerBurgId: 4, color: "#fdb462", goods: {} },
+      { i: 3, centerBurgId: 2, color: "#fb8072", goods: {} },
+      { i: 4, centerBurgId: 5, color: "#dababf", goods: {} }
+    ]);
+    expect(Array.from(globalThis.pack.cells.market as Uint16Array)).toEqual([
+      1, 0, 0, 1, 0, 0, 1, 0, 0, 3, 0, 0, 1, 1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 2, 1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 2, 2,
+      1, 1, 1, 1, 3, 3, 3, 3, 3, 3, 2, 2, 2, 1, 1, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 3, 3, 4, 3, 4, 4, 2, 2, 2, 2,
+      2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4, 4
+    ]);
+    expect((globalThis.pack.burgs as any[]).slice(1).map(b => ({ i: b.i, market: b.market, plaza: b.plaza }))).toEqual([
+      { i: 1, market: 1, plaza: 1 },
+      { i: 2, market: 3, plaza: 1 },
+      { i: 3, market: 1, plaza: 0 },
+      { i: 4, market: 2, plaza: 1 },
+      { i: 5, market: 4, plaza: 1 }
+    ]);
   });
 });
