@@ -92,4 +92,13 @@ describe("makeRandom", () => {
     // @ts-expect-error - undefined seed must throw at runtime
     expect(() => makeRandom(undefined)).toThrow("makeRandom requires a non-empty seed");
   });
+
+  it("accepts numeric 0 as a valid seed", () => {
+    expect(() => makeRandom(0)).not.toThrow();
+  });
+
+  it("throws on null seed", () => {
+    // @ts-expect-error - null seed must throw at runtime
+    expect(() => makeRandom(null)).toThrow("makeRandom requires a non-empty seed");
+  });
 });

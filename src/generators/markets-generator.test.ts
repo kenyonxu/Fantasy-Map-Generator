@@ -291,15 +291,15 @@ describe("MarketsModule", () => {
 });
 
 describe("Markets.generate golden (PRNG)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   // Golden for the PRNG injection: generate() must place the same markets whether its draws
   // (burg score noise + getColors) come from the ambient stream (pre-migration, seeded here)
   // or the generator's own seed-bound kit (post-migration) - both Alea over options.map.seed.
   it("reproduces markets, colors and territories from a fixed seed", async () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-      vi.unstubAllGlobals();
-    });
-
     globalThis.TIME = false;
     // @ts-expect-error vendored UMD script without TypeScript declarations
     (globalThis as any).FlatQueue = (await import("../../public/libs/flatqueue.js")).default;
