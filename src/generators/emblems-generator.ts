@@ -13,6 +13,7 @@ import {
 import type { Emblem, EmblemCharge, EmblemOrdinary, HeraldicEmblem } from "@/types/emblems";
 import type { IconSet } from "@/types/icons";
 import { P, rw } from "@/utils";
+import type { RandomKit } from "@/utils/random";
 
 declare global {
   interface Window {
@@ -23,11 +24,16 @@ declare global {
 // shapes that resolve per entity rather than fixing one shield for the whole map (the "Diversiform" option group)
 const DIVERSIFORM_SHAPES = ["culture", "random", "state"];
 
-function createTinctures() {
+// without a kit, direct callers (editors, provinces) draw the ambient global stream
+const roll = (R: RandomKit | undefined, probability: number): boolean => (R ? R.P(probability) : P(probability));
+const pickWeighted = (R: RandomKit | undefined, object: Record<string, number>): string =>
+  R ? R.rw(object) : rw(object);
+
+function createTinctures(R?: RandomKit) {
   return {
-    field: { ...tinctures.field, stains: +P(tinctures.field.stains) },
-    division: { ...tinctures.division, stains: +P(tinctures.division.stains) },
-    charge: { ...tinctures.charge, stains: +P(tinctures.charge.stains) },
+    field: { ...tinctures.field, stains: +roll(R, tinctures.field.stains) },
+    division: { ...tinctures.division, stains: +roll(R, tinctures.division.stains) },
+    charge: { ...tinctures.charge, stains: +roll(R, tinctures.charge.stains) },
     metals: tinctures.metals,
     colours: tinctures.colours,
     stains: tinctures.stains,
@@ -82,7 +88,8 @@ export class EmblemsGenerator {
     parentEmblem: Emblem | null | undefined,
     kinship: number | null,
     dominion: number | null,
-    type?: string
+    type?: string,
+    R?: RandomKit
   ): HeraldicEmblem {
     const parent = parentEmblem && "t1" in parentEmblem ? parentEmblem : null;
     if (!parent) {
@@ -93,53 +100,61 @@ export class EmblemsGenerator {
     let usedPattern: string | null = null;
     const usedTinctures: string[] = [];
 
-    const t1 = P(kinship as number) ? parent!.t1 : this.getTincture("field", usedTinctures, null);
+    const t1 = roll(R, kinship as number) ? parent!.t1 : this.getTincture("field", usedTinctures, null, R);
     if (t1.includes("-")) usedPattern = t1;
     const emblem: HeraldicEmblem = { t1 };
 
-    const addCharge = P(usedPattern ? 0.5 : 0.93); // 80% for charge
+    const addCharge = roll(R, usedPattern ? 0.5 : 0.93); // 80% for charge
     const linedOrdinary =
-      (addCharge && P(0.3)) || P(0.5)
-        ? parent?.ordinaries && P(kinship as number)
+      (addCharge && roll(R, 0.3)) || roll(R, 0.5)
+        ? parent?.ordinaries && roll(R, kinship as number)
           ? parent.ordinaries[0].ordinary
-          : rw(ordinaries.lined)
+          : pickWeighted(R, ordinaries.lined)
         : null;
 
     const ordinary =
-      (!addCharge && P(0.65)) || P(0.3) ? (linedOrdinary ? linedOrdinary : rw(ordinaries.straight)) : null; // 36% for ordinary
+      (!addCharge && roll(R, 0.65)) || roll(R, 0.3)
+        ? linedOrdinary
+          ? linedOrdinary
+          : pickWeighted(R, ordinaries.straight)
+        : null; // 36% for ordinary
     const rareDivided = ["chief", "terrace", "chevron", "quarter", "flaunches"].includes(ordinary!);
 
     const divisioned = (() => {
-      if (rareDivided) return P(0.03);
-      if (addCharge && ordinary) return P(0.03);
-      if (addCharge) return P(0.3);
-      if (ordinary) return P(0.7);
-      return P(0.995);
+      if (rareDivided) return roll(R, 0.03);
+      if (addCharge && ordinary) return roll(R, 0.03);
+      if (addCharge) return roll(R, 0.3);
+      if (ordinary) return roll(R, 0.7);
+      return roll(R, 0.995);
     })();
 
     const division = (() => {
       if (divisioned) {
-        if (parent?.division && P((kinship as number) - 0.1)) return parent.division.division;
-        return rw(divisions.variants);
+        if (parent?.division && roll(R, (kinship as number) - 0.1)) return parent.division.division;
+        return pickWeighted(R, divisions.variants);
       }
       return null;
     })();
 
     if (division) {
-      const t = this.getTincture("division", usedTinctures, P(0.98) ? emblem.t1 : null);
+      const t = this.getTincture("division", usedTinctures, roll(R, 0.98) ? emblem.t1 : null, R);
       emblem.division = { division, t };
       if (divisions[division as keyof typeof divisions])
         emblem.division.line =
-          usedPattern || (ordinary && P(0.7)) ? "straight" : rw(divisions[division as keyof typeof divisions]);
+          usedPattern || (ordinary && roll(R, 0.7))
+            ? "straight"
+            : pickWeighted(R, divisions[division as keyof typeof divisions]);
     }
 
     if (ordinary) {
-      emblem.ordinaries = [{ ordinary, t: this.getTincture("charge", usedTinctures, emblem.t1) }];
-      if (linedOrdinary) emblem.ordinaries[0].line = usedPattern || (division && P(0.7)) ? "straight" : rw(lineWeights);
-      if (division && !addCharge && !usedPattern && P(0.5) && ordinary !== "bordure" && ordinary !== "orle") {
-        if (P(0.8)) emblem.ordinaries[0].divided = "counter";
+      emblem.ordinaries = [{ ordinary, t: this.getTincture("charge", usedTinctures, emblem.t1, R) }];
+      if (linedOrdinary)
+        emblem.ordinaries[0].line =
+          usedPattern || (division && roll(R, 0.7)) ? "straight" : pickWeighted(R, lineWeights);
+      if (division && !addCharge && !usedPattern && roll(R, 0.5) && ordinary !== "bordure" && ordinary !== "orle") {
+        if (roll(R, 0.8)) emblem.ordinaries[0].divided = "counter";
         // 40%
-        else if (P(0.6)) emblem.ordinaries[0].divided = "field";
+        else if (roll(R, 0.6)) emblem.ordinaries[0].divided = "field";
         // 6%
         else emblem.ordinaries[0].divided = "division"; // 4%
       }
@@ -147,9 +162,9 @@ export class EmblemsGenerator {
 
     if (addCharge) {
       const charge = (() => {
-        if (parent?.charges && P((kinship as number) - 0.1)) return parent.charges[0].charge;
-        if (type && type !== "Generic" && P(0.3)) return rw(typeMapping[type]);
-        return this.selectCharge(ordinary || divisioned ? charges.types : charges.single);
+        if (parent?.charges && roll(R, (kinship as number) - 0.1)) return parent.charges[0].charge;
+        if (type && type !== "Generic" && roll(R, 0.3)) return pickWeighted(R, typeMapping[type]);
+        return this.selectCharge(ordinary || divisioned ? charges.types : charges.single, R);
       })();
       const chargeDataEntry = charges.data[charge] || {};
 
@@ -159,30 +174,30 @@ export class EmblemsGenerator {
       const ordinaryData = ordinaries.data[ordinary!];
       const tOrdinary = emblem.ordinaries ? emblem.ordinaries[0].t : null;
 
-      if (ordinaryData?.positionsOn && P(0.8)) {
+      if (ordinaryData?.positionsOn && roll(R, 0.8)) {
         // place charge over ordinary (use tincture of field type)
-        p = rw(ordinaryData.positionsOn);
-        t = !usedPattern && P(0.3) ? emblem.t1 : this.getTincture("charge", [], tOrdinary);
-      } else if (ordinaryData?.positionsOff && P(0.95)) {
+        p = pickWeighted(R, ordinaryData.positionsOn);
+        t = !usedPattern && roll(R, 0.3) ? emblem.t1 : this.getTincture("charge", [], tOrdinary, R);
+      } else if (ordinaryData?.positionsOff && roll(R, 0.95)) {
         // place charge out of ordinary (use tincture of ordinary type)
-        p = rw(ordinaryData.positionsOff);
-        t = !usedPattern && P(0.3) ? tOrdinary! : this.getTincture("charge", usedTinctures, emblem.t1);
+        p = pickWeighted(R, ordinaryData.positionsOff);
+        t = !usedPattern && roll(R, 0.3) ? tOrdinary! : this.getTincture("charge", usedTinctures, emblem.t1, R);
       } else if (positions.divisions[division as keyof typeof positions.divisions]) {
         // place charge in fields made by division
-        p = rw(positions.divisions[division as keyof typeof positions.divisions]);
-        t = this.getTincture("charge", tOrdinary ? usedTinctures.concat(tOrdinary) : usedTinctures, emblem.t1);
+        p = pickWeighted(R, positions.divisions[division as keyof typeof positions.divisions]);
+        t = this.getTincture("charge", tOrdinary ? usedTinctures.concat(tOrdinary) : usedTinctures, emblem.t1, R);
       } else if (chargeDataEntry.positions) {
         // place charge-suitable position
-        p = rw(chargeDataEntry.positions);
-        t = this.getTincture("charge", usedTinctures, emblem.t1);
+        p = pickWeighted(R, chargeDataEntry.positions);
+        t = this.getTincture("charge", usedTinctures, emblem.t1, R);
       } else {
         // place in standard position (use new tincture)
         p = usedPattern
           ? "e"
           : charges.conventional[charge as keyof typeof charges.conventional]
-            ? rw(positions.conventional)
-            : rw(positions.complex);
-        t = this.getTincture("charge", usedTinctures.concat(tOrdinary!), emblem.t1);
+            ? pickWeighted(R, positions.conventional)
+            : pickWeighted(R, positions.complex);
+        t = this.getTincture("charge", usedTinctures.concat(tOrdinary!), emblem.t1, R);
       }
 
       if (chargeDataEntry.natural && chargeDataEntry.natural !== t && chargeDataEntry.natural !== tOrdinary)
@@ -190,32 +205,34 @@ export class EmblemsGenerator {
 
       const item: EmblemCharge = { charge: charge, t, p };
       const colors = chargeDataEntry.colors || 1;
-      if (colors > 1) item.t2 = P(0.25) ? this.getTincture("charge", usedTinctures, emblem.t1) : t;
-      if (colors > 2 && item.t2) item.t3 = P(0.5) ? this.getTincture("charge", usedTinctures, emblem.t1) : t;
+      if (colors > 1) item.t2 = roll(R, 0.25) ? this.getTincture("charge", usedTinctures, emblem.t1, R) : t;
+      if (colors > 2 && item.t2) item.t3 = roll(R, 0.5) ? this.getTincture("charge", usedTinctures, emblem.t1, R) : t;
       emblem.charges = [item];
 
-      if (p === "ABCDEFGHIJKL" && P(0.95)) {
+      if (p === "ABCDEFGHIJKL" && roll(R, 0.95)) {
         // add central charge if charge is in bordure
-        emblem.charges[0].charge = rw(charges.conventional);
-        const chargeNew = this.selectCharge(charges.single);
-        const tNew = this.getTincture("charge", usedTinctures, emblem.t1);
+        emblem.charges[0].charge = pickWeighted(R, charges.conventional);
+        const chargeNew = this.selectCharge(charges.single, R);
+        const tNew = this.getTincture("charge", usedTinctures, emblem.t1, R);
         emblem.charges.push({ charge: chargeNew, t: tNew, p: "e" });
-      } else if (P(0.8) && charge === "inescutcheon") {
+      } else if (roll(R, 0.8) && charge === "inescutcheon") {
         // add charge to inescutcheon
-        const chargeNew = this.selectCharge(charges.types);
-        const t2 = this.getTincture("charge", [], t);
+        const chargeNew = this.selectCharge(charges.types, R);
+        const t2 = this.getTincture("charge", [], t, R);
         emblem.charges.push({ charge: chargeNew, t: t2, p, size: 0.5 });
       } else if (division && !ordinary) {
         const allowCounter = !usedPattern && (!emblem.division?.line || emblem.division.line === "straight");
 
         // dimidiation: second charge at division basic positions
-        if (P(0.3) && ["perPale", "perFess"].includes(division) && emblem.division?.line === "straight") {
+        if (roll(R, 0.3) && ["perPale", "perFess"].includes(division) && emblem.division?.line === "straight") {
           emblem.charges[0].divided = "field";
-          if (P(0.95)) {
+          if (roll(R, 0.95)) {
             const p2 =
-              p === "e" || P(0.5) ? "e" : rw(positions.divisions[division as keyof typeof positions.divisions]);
-            const chargeNew = this.selectCharge(charges.single);
-            const tNew = this.getTincture("charge", usedTinctures, emblem.division!.t);
+              p === "e" || roll(R, 0.5)
+                ? "e"
+                : pickWeighted(R, positions.divisions[division as keyof typeof positions.divisions]);
+            const chargeNew = this.selectCharge(charges.single, R);
+            const tNew = this.getTincture("charge", usedTinctures, emblem.division!.t, R);
             emblem.charges.push({
               charge: chargeNew,
               t: tNew,
@@ -223,9 +240,9 @@ export class EmblemsGenerator {
               divided: "division"
             });
           }
-        } else if (allowCounter && P(0.4)) emblem.charges[0].divided = "counter";
+        } else if (allowCounter && roll(R, 0.4)) emblem.charges[0].divided = "counter";
         // counterchanged, 40%
-        else if (["perPale", "perFess", "perBend", "perBendSinister"].includes(division) && P(0.8)) {
+        else if (["perPale", "perFess", "perBend", "perBendSinister"].includes(division) && roll(R, 0.8)) {
           // place 2 charges in division standard positions
           const [p1, p2] =
             division === "perPale"
@@ -237,35 +254,35 @@ export class EmblemsGenerator {
                   : ["j", "o"]; // perBendSinister
           emblem.charges[0].p = p1;
 
-          const chargeNew = this.selectCharge(charges.single);
-          const tNew = this.getTincture("charge", usedTinctures, emblem.division!.t);
+          const chargeNew = this.selectCharge(charges.single, R);
+          const tNew = this.getTincture("charge", usedTinctures, emblem.division!.t, R);
           emblem.charges.push({ charge: chargeNew, t: tNew, p: p2 });
-        } else if (["perCross", "perSaltire"].includes(division) && P(0.5)) {
+        } else if (["perCross", "perSaltire"].includes(division) && roll(R, 0.5)) {
           // place 4 charges in division standard positions
           const [p1, p2, p3, p4] = division === "perCross" ? ["j", "l", "m", "o"] : ["b", "d", "f", "h"];
           emblem.charges[0].p = p1;
 
-          const c2 = this.selectCharge(charges.single);
-          const t2 = this.getTincture("charge", [], emblem.division!.t);
+          const c2 = this.selectCharge(charges.single, R);
+          const t2 = this.getTincture("charge", [], emblem.division!.t, R);
 
-          const c3 = this.selectCharge(charges.single);
-          const t3 = this.getTincture("charge", [], emblem.division!.t);
+          const c3 = this.selectCharge(charges.single, R);
+          const t3 = this.getTincture("charge", [], emblem.division!.t, R);
 
-          const c4 = this.selectCharge(charges.single);
-          const t4 = this.getTincture("charge", [], emblem.t1);
+          const c4 = this.selectCharge(charges.single, R);
+          const t4 = this.getTincture("charge", [], emblem.t1, R);
           emblem.charges.push({ charge: c2, t: t2, p: p2 }, { charge: c3, t: t3, p: p3 }, { charge: c4, t: t4, p: p4 });
         } else if (allowCounter && p.length > 1) emblem.charges[0].divided = "counter"; // counterchanged, 40%
       }
 
       for (const c of emblem.charges) {
-        this.defineChargeAttributes(ordinary, division, c);
+        this.defineChargeAttributes(ordinary, division, c, R);
       }
     }
 
     // dominions have canton with parent coa
-    if (P(dominion as number) && parent?.charges) {
-      const invert = this.isSameType(parent.t1, emblem.t1);
-      const t = invert ? this.getTincture("division", usedTinctures, emblem.t1) : parent.t1;
+    if (roll(R, dominion as number) && parent?.charges) {
+      const invert = this.isSameType(parent.t1, emblem.t1, R);
+      const t = invert ? this.getTincture("division", usedTinctures, emblem.t1, R) : parent.t1;
       const canton: EmblemOrdinary = { ordinary: "canton", t };
 
       if (emblem.charges) {
@@ -281,7 +298,7 @@ export class EmblemsGenerator {
       if (charge === "inescutcheon" && parent.charges[1]) charge = parent.charges[1].charge;
 
       let t2 = invert ? parent.t1 : parent.charges[0].t;
-      if (this.isSameType(t, t2)) t2 = this.getTincture("charge", usedTinctures, t);
+      if (this.isSameType(t, t2, R)) t2 = this.getTincture("charge", usedTinctures, t, R);
 
       if (!emblem.charges) emblem.charges = [];
       emblem.charges.push({ charge, t: t2, p: "y", size: 0.5 });
@@ -309,37 +326,47 @@ export class EmblemsGenerator {
     return DIVERSIFORM_SHAPES.includes(this.emblemShape);
   }
 
-  private selectCharge(set?: Record<string, number>): string {
-    const type = set ? rw(set) : rw(charges.types);
+  private selectCharge(set?: Record<string, number>, R?: RandomKit): string {
+    const type = set ? pickWeighted(R, set) : pickWeighted(R, charges.types);
     return type === "inescutcheon"
       ? "inescutcheon"
-      : rw(charges[type as keyof typeof charges] as Record<string, number>);
+      : pickWeighted(R, charges[type as keyof typeof charges] as Record<string, number>);
   }
 
   // Select tincture: element type (field, division, charge), used field tinctures, field type to follow RoT
-  private getTincture(element: "field" | "division" | "charge", fields: string[] = [], RoT: string | null): string {
+  private getTincture(
+    element: "field" | "division" | "charge",
+    fields: string[] = [],
+    RoT: string | null,
+    R?: RandomKit
+  ): string {
     const base = RoT ? (RoT.includes("-") ? RoT.split("-")[1] : RoT) : null;
-    const tinctures = createTinctures();
+    const tinctures = createTinctures(R);
 
-    let type = rw(tinctures[element]); // metals, colours, stains, patterns
-    if (RoT && type !== "patterns") type = this.getType(base!) === "metals" ? "colours" : "metals"; // follow RoT
+    let type = pickWeighted(R, tinctures[element]); // metals, colours, stains, patterns
+    if (RoT && type !== "patterns") type = this.getType(base!, R) === "metals" ? "colours" : "metals"; // follow RoT
     if (type === "metals" && fields.includes("or") && fields.includes("argent")) type = "colours"; // exclude metals overuse
-    let tincture = rw(tinctures[type as keyof typeof tinctures] as Record<string, number>);
+    let tincture = pickWeighted(R, tinctures[type as keyof typeof tinctures] as Record<string, number>);
 
     while (tincture === base || fields.includes(tincture)) {
-      tincture = rw(tinctures[type as keyof typeof tinctures] as Record<string, number>);
+      tincture = pickWeighted(R, tinctures[type as keyof typeof tinctures] as Record<string, number>);
     } // follow RoT
 
     if (type !== "patterns" && element !== "charge") fields.push(tincture); // add field tincture
 
     if (type === "patterns") {
-      tincture = this.definePattern(tincture, element, fields);
+      tincture = this.definePattern(tincture, element, fields, R);
     }
 
     return tincture;
   }
 
-  private defineChargeAttributes(ordinary: string | null, division: string | null, c: EmblemCharge): void {
+  private defineChargeAttributes(
+    ordinary: string | null,
+    division: string | null,
+    c: EmblemCharge,
+    R?: RandomKit
+  ): void {
     // define size
     c.size = (c.size || 1) * this.getSize(c.p, ordinary, division);
 
@@ -347,111 +374,116 @@ export class EmblemsGenerator {
     c.p = [...new Set(c.p)].join("");
 
     // define orientation
-    if (P(0.02) && charges.data[c.charge]?.sinister) c.sinister = 1;
-    if (P(0.02) && charges.data[c.charge]?.reversed) c.reversed = 1;
+    if (roll(R, 0.02) && charges.data[c.charge]?.sinister) c.sinister = 1;
+    if (roll(R, 0.02) && charges.data[c.charge]?.reversed) c.reversed = 1;
   }
 
-  private getType(t: string): string | undefined {
+  private getType(t: string, R?: RandomKit): string | undefined {
     const tinc = t.includes("-") ? t.split("-")[1] : t;
-    const tinctures = createTinctures();
+    const tinctures = createTinctures(R);
     if (Object.keys(tinctures.metals).includes(tinc)) return "metals";
     if (Object.keys(tinctures.colours).includes(tinc)) return "colours";
     if (Object.keys(tinctures.stains).includes(tinc)) return "stains";
     return undefined;
   }
 
-  private isSameType(t1: string, t2: string): boolean {
-    return this.typeOf(t1) === this.typeOf(t2);
+  private isSameType(t1: string, t2: string, R?: RandomKit): boolean {
+    return this.typeOf(t1, R) === this.typeOf(t2, R);
   }
 
-  private typeOf(tinc: string): string {
-    const tinctures = createTinctures();
+  private typeOf(tinc: string, R?: RandomKit): string {
+    const tinctures = createTinctures(R);
     if (Object.keys(tinctures.metals).includes(tinc)) return "metals";
     if (Object.keys(tinctures.colours).includes(tinc)) return "colours";
     if (Object.keys(tinctures.stains).includes(tinc)) return "stains";
     return "pattern";
   }
 
-  private definePattern(pattern: string, element: "field" | "division" | "charge", usedTinctures: string[]): string {
+  private definePattern(
+    pattern: string,
+    element: "field" | "division" | "charge",
+    usedTinctures: string[],
+    R?: RandomKit
+  ): string {
     let t1: string | null = null;
     let t2: string | null = null;
     let size = "";
 
     // Size selection - must use sequential P() calls to match original behavior
-    if (P(0.1)) size = "-small";
+    if (roll(R, 0.1)) size = "-small";
     // biome-ignore lint/suspicious/noDuplicateElseIf: sequential P() calls advance random state, conditions are not truly duplicate
-    else if (P(0.1)) size = "-smaller";
-    else if (P(0.01)) size = "-big";
-    else if (P(0.005)) size = "-smallest";
+    else if (roll(R, 0.1)) size = "-smaller";
+    else if (roll(R, 0.01)) size = "-big";
+    else if (roll(R, 0.005)) size = "-smallest";
 
     // apply standard tinctures
-    if (P(0.5) && ["vair", "vairInPale", "vairEnPointe"].includes(pattern)) {
+    if (roll(R, 0.5) && ["vair", "vairInPale", "vairEnPointe"].includes(pattern)) {
       t1 = "azure";
       t2 = "argent";
-    } else if (P(0.8) && pattern === "ermine") {
+    } else if (roll(R, 0.8) && pattern === "ermine") {
       t1 = "argent";
       t2 = "sable";
     } else if (pattern === "pappellony") {
-      if (P(0.2)) {
+      if (roll(R, 0.2)) {
         t1 = "gules";
         t2 = "or";
         // biome-ignore lint/suspicious/noDuplicateElseIf: sequential P() calls advance random state, conditions are not truly duplicate
-      } else if (P(0.2)) {
+      } else if (roll(R, 0.2)) {
         t1 = "argent";
         t2 = "sable";
         // biome-ignore lint/suspicious/noDuplicateElseIf: sequential P() calls advance random state, conditions are not truly duplicate
-      } else if (P(0.2)) {
+      } else if (roll(R, 0.2)) {
         t1 = "azure";
         t2 = "argent";
       }
     } else if (pattern === "masoned") {
-      if (P(0.3)) {
+      if (roll(R, 0.3)) {
         t1 = "gules";
         t2 = "argent";
         // biome-ignore lint/suspicious/noDuplicateElseIf: sequential P() calls advance random state, conditions are not truly duplicate
-      } else if (P(0.3)) {
+      } else if (roll(R, 0.3)) {
         t1 = "argent";
         t2 = "sable";
-      } else if (P(0.1)) {
+      } else if (roll(R, 0.1)) {
         t1 = "or";
         t2 = "sable";
       }
     } else if (pattern === "fretty") {
-      if (t2 === "sable" || P(0.35)) {
+      if (t2 === "sable" || roll(R, 0.35)) {
         t1 = "argent";
         t2 = "gules";
-      } else if (P(0.25)) {
+      } else if (roll(R, 0.25)) {
         t1 = "sable";
         t2 = "or";
-      } else if (P(0.15)) {
+      } else if (roll(R, 0.15)) {
         t1 = "gules";
         t2 = "argent";
       }
-    } else if (pattern === "semy") pattern = `${pattern}_of_${this.selectCharge(charges.semy)}`;
+    } else if (pattern === "semy") pattern = `${pattern}_of_${this.selectCharge(charges.semy, R)}`;
 
     if (!t1 || !t2) {
-      const tinctures = createTinctures();
-      const startWithMetal = P(0.7);
-      t1 = startWithMetal ? rw(tinctures.metals) : rw(tinctures.colours);
-      t2 = startWithMetal ? rw(tinctures.colours) : rw(tinctures.metals);
+      const tinctures = createTinctures(R);
+      const startWithMetal = roll(R, 0.7);
+      t1 = startWithMetal ? pickWeighted(R, tinctures.metals) : pickWeighted(R, tinctures.colours);
+      t2 = startWithMetal ? pickWeighted(R, tinctures.colours) : pickWeighted(R, tinctures.metals);
     }
 
     // division should not be the same tincture as base field
     if (element === "division") {
-      if (usedTinctures.includes(t1)) t1 = this.replaceTincture(t1);
-      if (usedTinctures.includes(t2)) t2 = this.replaceTincture(t2);
+      if (usedTinctures.includes(t1)) t1 = this.replaceTincture(t1, R);
+      if (usedTinctures.includes(t2)) t2 = this.replaceTincture(t2, R);
     }
 
     usedTinctures.push(t1, t2);
     return `${pattern}-${t1}-${t2}${size}`;
   }
 
-  private replaceTincture(t: string): string {
-    const type = this.getType(t);
+  private replaceTincture(t: string, R?: RandomKit): string {
+    const type = this.getType(t, R);
     let n: string | null = null;
-    const tinctures = createTinctures();
+    const tinctures = createTinctures(R);
     while (!n || n === t) {
-      n = rw(tinctures[type as keyof typeof tinctures] as Record<string, number>);
+      n = pickWeighted(R, tinctures[type as keyof typeof tinctures] as Record<string, number>);
     }
     return n;
   }

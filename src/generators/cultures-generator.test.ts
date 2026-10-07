@@ -12,6 +12,7 @@ afterEach(() => {
 
 it("uses the requested culture set when regenerating an existing map", () => {
   options = Options.getDefaultOptions();
+  options.map.seed = "test";
   options.map.cultures.set = "english";
   options.generation.cultures = { ...options.generation.cultures, set: "highFantasy", limit: 16 };
   const cells = { i: Array.from({ length: 500 }, (_, i) => i), s: Array(500).fill(1), h: [], t: [] };
@@ -26,7 +27,7 @@ it("uses the requested culture set when regenerating an existing map", () => {
 
   expect(() => Cultures.regenerate()).toThrow("stop before placement");
   expect(options.map.cultures.set).toBe("highFantasy");
-  expect(Cultures.getDefault).toHaveBeenCalledWith(16);
+  expect(Cultures.getDefault).toHaveBeenCalledWith(16, expect.anything()); // 16 cultures, the seed-bound kit
   expect(names.includes("Quenian (Elfish)")).toBe(true);
 });
 
@@ -131,6 +132,7 @@ describe("Cultures.generate extreme climate", () => {
   beforeEach(() => {
     (globalThis as any).FlatQueue = FlatQueue;
     options = Options.getDefaultOptions();
+    options.map.seed = "test";
     options.generation.cultures = { ...options.generation.cultures, set: "english", limit: 4 };
     options.map.graph.width = 200;
     options.map.graph.height = 100;
@@ -196,6 +198,7 @@ describe("Cultures.regenerate with a locked culture", () => {
   beforeEach(() => {
     (globalThis as any).FlatQueue = FlatQueue;
     options = Options.getDefaultOptions();
+    options.map.seed = "lock-5"; // the kit draws the same Alea stream the ambient spy drew
     options.generation.cultures = { ...options.generation.cultures, limit: 2, set: "english" };
     options.map.graph.width = 200;
     options.map.graph.height = 100; // initial center spacing = (200 + 100) / 2 / 2 = 75
@@ -256,5 +259,150 @@ describe("Cultures.regenerate with a locked culture", () => {
     expect(Math.abs(regeneratedX - lockedX)).toBeGreaterThanOrEqual(300);
     // the flood never overwrites a locked culture's cell
     expect(packStub.cells.culture[10]).toBe(1);
+  });
+});
+
+// Golden for the PRNG injection: generate() must produce the same output whether its draws come
+// from the ambient stream (pre-migration, seeded here) or the generator's own seed-bound kit
+// (post-migration) - both are Alea over options.map.seed, drawn in the same call order.
+describe("Cultures.generate golden (PRNG)", () => {
+  const SEED = "cultures-gold";
+
+  it("reproduces the world-set selection and placement from a fixed seed", async () => {
+    await import("./names-generator"); // real Names: the default sets roll names from its bases
+    const n = 300;
+    const cells = {
+      i: Array.from({ length: n }, (_, i) => i),
+      c: Array.from({ length: n }, (_, i) => [i - 1, i + 1].filter(x => x >= 0 && x < n)),
+      p: Array.from({ length: n }, (_, i) => [(i % 30) * 40, Math.floor(i / 30) * 40] as [number, number]),
+      culture: new Uint16Array(n),
+      biome: new Array(n).fill(5),
+      h: new Array(n).fill(35),
+      haven: new Array(n).fill(0),
+      harbor: new Array(n).fill(0),
+      s: Array.from({ length: n }, (_, i) => ((i * 7) % 19) + 1),
+      t: new Array(n).fill(-1),
+      r: new Array(n).fill(0),
+      fl: new Array(n).fill(0),
+      g: Array.from({ length: n }, (_, i) => i),
+      pop: new Array(n).fill(5),
+      area: new Array(n).fill(5),
+      f: new Array(n).fill(0)
+    };
+    vi.stubGlobal("pack", { cells, cultures: [], features: [{ i: 0, type: "ocean", cells: 0 }] });
+    vi.stubGlobal("grid", { cells: { temp: new Array(n).fill(15) } });
+
+    options = Options.getDefaultOptions();
+    options.map.seed = SEED;
+    options.generation.cultures.set = "world";
+    options.generation.cultures.limit = 8;
+    vi.spyOn(Math, "random").mockImplementation(Alea(SEED) as () => number);
+
+    const report = Cultures.generate();
+
+    expect(report).toEqual({});
+    const summary = (globalThis.pack as any).cultures.map((c: any) => ({
+      name: c.name,
+      base: c.base,
+      type: c.type,
+      expansionism: c.expansionism,
+      center: c.center,
+      color: c.color,
+      code: c.code,
+      shield: c.shield
+    }));
+    expect(summary).toEqual([
+      { name: "Wildlands", base: 1, type: "Generic", shield: "round" },
+      {
+        name: "Shwazen",
+        base: 0,
+        type: "Generic",
+        expansionism: 2.1,
+        center: 143,
+        color: "#bc80bd",
+        code: "Sh",
+        shield: "hessen"
+      },
+      {
+        name: "Tallian",
+        base: 3,
+        type: "Generic",
+        expansionism: 2.7,
+        center: 135,
+        color: "#c6b9c1",
+        code: "Ta",
+        shield: "horsehead2"
+      },
+      {
+        name: "Slovan",
+        base: 5,
+        type: "Generic",
+        expansionism: 2.4,
+        center: 3,
+        color: "#80b1d3",
+        code: "Sl",
+        shield: "round"
+      },
+      {
+        name: "Elladan",
+        base: 7,
+        type: "Generic",
+        expansionism: 1.1,
+        center: 66,
+        color: "#dababf",
+        code: "El",
+        shield: "boeotian"
+      },
+      {
+        name: "Amazi",
+        base: 17,
+        type: "Generic",
+        expansionism: 1.5,
+        center: 0,
+        color: "#fdb462",
+        code: "Am",
+        shield: "round"
+      },
+      {
+        name: "Efratic",
+        base: 23,
+        type: "Generic",
+        expansionism: 1.9,
+        center: 87,
+        color: "#b3de69",
+        code: "Ef",
+        shield: "diamond"
+      },
+      {
+        name: "Euskati",
+        base: 20,
+        type: "Generic",
+        expansionism: 1.9,
+        center: 70,
+        color: "#fb8072",
+        code: "Eu",
+        shield: "spanish"
+      },
+      {
+        name: "Astellian",
+        base: 4,
+        type: "Generic",
+        expansionism: 2.5,
+        center: 279,
+        color: "#fccde5",
+        code: "As",
+        shield: "spanish"
+      }
+    ]);
+    expect([...cells.culture]).toEqual([
+      5, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 7, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    ]);
   });
 });

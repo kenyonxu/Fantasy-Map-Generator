@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import Alea from "alea";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Journey, JourneySegment } from "@/types/Journey";
 
 const makeSeg = (
@@ -447,5 +448,151 @@ describe("land pathfinding respects terrain", () => {
 
     const { points } = Journeys.findPath(START, END, "land", { avoidRoads: false });
     expect(points.some(([, , cellId]: any) => cells.biome[cellId] === GLACIER)).toBe(false);
+  });
+});
+
+// Golden for the PRNG injection: generate() must plot the same journey whether its draws come
+// from the ambient stream (pre-migration, seeded here) or the module's own seed-bound kit
+// (post-migration) - both are Alea over options.map.seed, drawn in the same call order.
+describe("Journeys.generate golden (PRNG)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("reproduces the journey, its legs and halts from a fixed seed", async () => {
+    globalThis.Names = (await import("../names-generator")).Names;
+    // @ts-expect-error vendored UMD script without TypeScript declarations
+    (globalThis as any).FlatQueue = (await import("../../../public/libs/flatqueue.js")).default;
+    await import("../transports-generator");
+    // 10x10 land grid, 100px apart, eight burgs over two states
+    const GRID = 10;
+    const STEP = 100;
+    const n = GRID * GRID;
+    const cellPoint = (cellId: number): [number, number] => [(cellId % GRID) * STEP, Math.floor(cellId / GRID) * STEP];
+    const neighbors = (i: number) =>
+      [
+        [(i % GRID) - 1, Math.floor(i / GRID)],
+        [(i % GRID) + 1, Math.floor(i / GRID)],
+        [i % GRID, Math.floor(i / GRID) - 1],
+        [i % GRID, Math.floor(i / GRID) + 1]
+      ]
+        .filter(([c, r]) => c >= 0 && c < GRID && r >= 0 && r < GRID)
+        .map(([c, r]) => r * GRID + c);
+    const burgs: any[] = [0];
+    const burg = new Uint16Array(n);
+    [0, 7, 23, 35, 48, 62, 79, 94].forEach((cell, index) => {
+      const i = index + 1;
+      const [x, y] = cellPoint(cell);
+      burgs.push({
+        i,
+        cell,
+        x,
+        y,
+        name: `Burg${i}`,
+        state: index < 4 ? 1 : 2,
+        culture: index < 4 ? 1 : 2,
+        capital: +(index % 4 === 0),
+        port: 0,
+        population: 10 - index
+      });
+      burg[cell] = i;
+    });
+    vi.stubGlobal("pack", {
+      cells: {
+        i: Array.from({ length: n }, (_, i) => i),
+        p: Array.from({ length: n }, (_, i) => cellPoint(i)),
+        c: Array.from({ length: n }, (_, i) => neighbors(i)),
+        h: new Uint8Array(n).fill(30),
+        biome: new Uint8Array(n).fill(6),
+        f: new Uint8Array(n).fill(1),
+        burg,
+        routes: {} as Record<number, Record<number, number>>
+      },
+      burgs,
+      routes: [],
+      states: [0, { i: 1, name: "Alderia" }, { i: 2, name: "Brennmark" }],
+      cultures: [
+        { i: 0, base: 0 },
+        { i: 1, base: 1 },
+        { i: 2, base: 5 }
+      ],
+      biomes: [
+        { i: 0, name: "Marine" },
+        ...Array.from({ length: 12 }, (_, i) => ({ i: i + 1, name: "Temperate deciduous forest" }))
+      ],
+      features: [0, { i: 1, type: "island", name: "" }]
+    });
+    vi.stubGlobal("Routes", { findWaterPath: () => null });
+    vi.stubGlobal("Rivers", { isNavigable: () => false });
+
+    options = Options.getDefaultOptions();
+    options.map.seed = "journeys-gold-3";
+    options.map.units.distance = { unit: "km", scale: 1 };
+    options.map.transports = Transports.getDefaults();
+    options.map.graph = { width: GRID * STEP, height: GRID * STEP, points: 10000 };
+    vi.spyOn(Math, "random").mockImplementation(Alea("journeys-gold-3") as () => number);
+
+    Journeys.generate();
+
+    const summary = ((globalThis.pack as any).journeys as any[]).map(j => ({
+      i: j.i,
+      name: j.name,
+      type: j.type,
+      color: j.color,
+      segments: j.segments.map((s: any) => ({
+        i: s.i,
+        name: s.name,
+        from: s.from,
+        to: s.to,
+        transport: s.transport,
+        speed: s.speed,
+        distance: s.distance,
+        duration: s.duration,
+        avoidRoads: s.avoidRoads,
+        points: s.points.length
+      }))
+    }));
+    expect(summary).toEqual([
+      {
+        i: 0,
+        name: "The Quest of Captain Mogostis",
+        type: "Quest",
+        color: "#1f77b4",
+        segments: [
+          {
+            i: 0,
+            name: "Out of Burg5",
+            from: 48,
+            to: 23,
+            transport: "On foot (light)",
+            speed: 5,
+            distance: 700,
+            points: 8
+          },
+          {
+            i: 1,
+            name: "Rumours in Burg3",
+            from: 23,
+            to: 23,
+            transport: "Stay",
+            speed: 0,
+            distance: 0,
+            duration: 24,
+            points: 1
+          },
+          {
+            i: 2,
+            name: "Last miles to Burg1",
+            from: 23,
+            to: 0,
+            transport: "Horseback (no spare horse)",
+            speed: 7,
+            distance: 500,
+            points: 6
+          }
+        ]
+      }
+    ]);
   });
 });

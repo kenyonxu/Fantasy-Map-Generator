@@ -1,5 +1,5 @@
-import Alea from "alea";
 import { polygonArea } from "d3";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireName, requireOneOf } from "@/utils/validationUtils";
 import { clipPoly, connectVertices, distanceSquared, isLand, isWater, P, ra, rn, TYPED_ARRAY_MAX } from "../utils";
 import { Coastline, type CoastlineSettings } from "./coastline-generator";
@@ -106,8 +106,6 @@ class FeatureModule {
    * mark Grid features (ocean, lakes, islands) and calculate distance field
    */
   markupGrid() {
-    Math.random = Alea(options.map.seed); // get the same result on heightmap edit in Erase mode
-
     const { h: heights, c: neighbors, b: borderCells, i } = grid.cells;
     const cellsNumber = i.length;
     const distanceField = new Int8Array(cellsNumber); // gird.cells.t
@@ -514,27 +512,36 @@ class FeatureModule {
 
   /** Name the features that have none; existing names are the user's and stay */
   defineNames() {
-    Math.random = Alea(options.map.seed); // the names roll the PRNG, the steps after stay put
+    const R = makeRandom(options.map.seed); // the names roll a seed-bound stream, the steps after stay put
     for (const feature of pack.features) {
-      if (feature && !feature.name) feature.name = this.getName(feature);
+      if (feature && !feature.name) feature.name = this.getName(feature, R);
     }
   }
 
-  getName(feature: Feature): string {
-    if (feature.type === "ocean") return this.getOceanName(feature);
-    if (P(0.1)) return ra(ADJECTIVES);
+  getName(feature: Feature, R?: RandomKit): string {
+    if (feature.type === "ocean") return this.getOceanName(feature, R);
+    if (this.roll(R, 0.1)) return this.adjective(R);
     const cell = feature.type === "lake" ? feature.shoreline?.[0] || feature.firstCell : feature.firstCell;
     const culture = pack.cells.culture[cell];
-    return pack.cultures[culture] ? Names.getCulture(culture) : ra(ADJECTIVES); // a loaded map may hold a dropped culture
+    return pack.cultures[culture] ? Names.getCulture(culture) : this.adjective(R); // a loaded map may hold a dropped culture
   }
 
   // oceans belong to no culture: an adjective or the map side, the subtype noun is shown separately
-  private getOceanName(feature: Feature) {
-    if (P(0.8)) return ra(ADJECTIVES);
+  private getOceanName(feature: Feature, R?: RandomKit) {
+    if (this.roll(R, 0.8)) return this.adjective(R);
     const [x, y] = pack.cells.p[feature.firstCell];
     const { width, height } = options.map.graph;
     const [dx, dy] = [x / width - 0.5, y / height - 0.5];
     return Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? "Western" : "Eastern") : dy < 0 ? "Northern" : "Southern";
+  }
+
+  // without a kit, direct callers (editors, IO) draw the ambient global stream
+  private roll(R: RandomKit | undefined, probability: number): boolean {
+    return R ? R.P(probability) : P(probability);
+  }
+
+  private adjective(R: RandomKit | undefined): string {
+    return R ? R.ra(ADJECTIVES) : ra(ADJECTIVES);
   }
 }
 

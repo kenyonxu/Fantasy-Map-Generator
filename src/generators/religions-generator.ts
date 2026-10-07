@@ -1,5 +1,6 @@
 import { quadtree } from "d3";
 import { requireColor } from "@/utils/colorUtils";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireCode, requireName, requireOneOf, requireOrigins } from "@/utils/validationUtils";
 import {
   abbreviate,
@@ -10,7 +11,6 @@ import {
   getRandomColor,
   isWater,
   ra,
-  rand,
   rw,
   trimVowels
 } from "../utils";
@@ -615,11 +615,12 @@ const types: Record<string, Record<string, number>> = {
   }
 };
 
-const expansionismMap: Record<string, () => number> = {
+// without a kit, direct callers (the religion editor) draw the ambient global stream
+const expansionismMap: Record<string, (R?: RandomKit) => number> = {
   Folk: () => 0,
-  Organized: () => gauss(5, 3, 0, 10, 1),
-  Cult: () => gauss(0.5, 0.5, 0, 5, 1),
-  Heresy: () => gauss(1, 0.5, 0, 5, 1)
+  Organized: R => (R ? R.gauss(5, 3, 0, 10, 1) : gauss(5, 3, 0, 10, 1)),
+  Cult: R => (R ? R.gauss(0.5, 0.5, 0, 5, 1) : gauss(0.5, 0.5, 0, 5, 1)),
+  Heresy: R => (R ? R.gauss(1, 0.5, 0, 5, 1) : gauss(1, 0.5, 0, 5, 1))
 };
 
 class ReligionsModule {
@@ -628,16 +629,17 @@ class ReligionsModule {
   }
 
   generate() {
+    const R = makeRandom(options.map.seed);
     const lockedReligions = pack.religions?.filter(r => r.i && r.lock && !r.removed) || [];
 
-    const folkReligions = this.generateFolkReligions();
-    const organizedReligions = this.generateOrganizedReligions(options.generation.religions.limit, lockedReligions);
+    const folkReligions = this.generateFolkReligions(R);
+    const organizedReligions = this.generateOrganizedReligions(options.generation.religions.limit, lockedReligions, R);
 
-    const namedReligions = this.specifyReligions([...folkReligions, ...organizedReligions]);
+    const namedReligions = this.specifyReligions([...folkReligions, ...organizedReligions], R);
     const indexedReligions = this.combineReligions(namedReligions, lockedReligions);
     const religionIds = this.expandReligions(indexedReligions);
     const baseReligions = this.defineOrigins(religionIds, indexedReligions);
-    const heresies = this.generateHeresies(baseReligions, religionIds);
+    const heresies = this.generateHeresies(baseReligions, religionIds, R);
     const religions = [...baseReligions, ...heresies];
     this.expandHeresies(religions, religionIds, heresies);
 
@@ -647,18 +649,22 @@ class ReligionsModule {
     this.checkCenters();
   }
 
-  private generateFolkReligions(): ReligionBase[] {
+  private generateFolkReligions(R: RandomKit): ReligionBase[] {
     return pack.cultures
       .filter(c => c.i && !c.removed)
       .map(culture => ({
         type: "Folk" as const,
-        form: rw(forms.Folk),
+        form: R.rw(forms.Folk),
         culture: culture.i,
         center: culture.center!
       }));
   }
 
-  private generateOrganizedReligions(desiredReligionNumber: number, lockedReligions: Religion[]): ReligionBase[] {
+  private generateOrganizedReligions(
+    desiredReligionNumber: number,
+    lockedReligions: Religion[],
+    R: RandomKit
+  ): ReligionBase[] {
     const cells = pack.cells;
     const lockedReligionCount = lockedReligions.filter(({ type }) => type === "Organized" || type === "Cult").length;
     const requiredReligionsNumber = desiredReligionNumber - lockedReligionCount;
@@ -667,7 +673,7 @@ class ReligionsModule {
     const candidateCells = getCandidateCells();
     const religionCores = placeReligions();
 
-    const cultsCount = Math.floor((rand(1, 4) / 10) * religionCores.length); // 10-40%
+    const cultsCount = Math.floor((R.rand(1, 4) / 10) * religionCores.length); // 10-40%
     const organizedCount = religionCores.length - cultsCount;
 
     const getType = (index: number): "Organized" | "Cult" => {
@@ -677,7 +683,7 @@ class ReligionsModule {
 
     return religionCores.map((cellId, index) => {
       const type = getType(index);
-      const form = rw(forms[type]);
+      const form = R.rw(forms[type]);
       const cultureId = cells.culture[cellId];
 
       return { type, form, culture: cultureId, center: cellId };
@@ -719,20 +725,20 @@ class ReligionsModule {
     }
   }
 
-  private specifyReligions(newReligions: ReligionBase[]): NamedReligion[] {
+  private specifyReligions(newReligions: ReligionBase[], R: RandomKit): NamedReligion[] {
     const { cells, cultures } = pack;
 
     const rawReligions = newReligions.map(({ type, form, culture: cultureId, center }) => {
-      const supreme = this.getDeityName(cultureId);
+      const supreme = this.getDeityName(cultureId, R);
       const deity: string | null = form === "Non-theism" || form === "Animism" ? null : (supreme ?? null);
 
       const stateId = cells.state[center];
 
-      let [name, expansion] = this.generateReligionName(type, form, supreme!, center);
+      let [name, expansion] = this.generateReligionName(type, form, supreme!, center, R);
       if (expansion === "state" && !stateId) expansion = "global";
 
-      const expansionism = expansionismMap[type]();
-      const color = getReligionColor(cultures[cultureId], type);
+      const expansionism = expansionismMap[type](R);
+      const color = getReligionColor(cultures[cultureId], type, R);
 
       return {
         name,
@@ -749,13 +755,13 @@ class ReligionsModule {
 
     return rawReligions;
 
-    function getReligionColor(culture: (typeof pack.cultures)[number], type: string): string {
-      if (!culture.i) return getRandomColor();
+    function getReligionColor(culture: (typeof pack.cultures)[number], type: string, R: RandomKit): string {
+      if (!culture.i) return getRandomColor(R.next);
 
       if (type === "Folk") return culture.color!;
-      if (type === "Heresy") return getMixedColor(culture.color!, 0.35, 0.2);
-      if (type === "Cult") return getMixedColor(culture.color!, 0.5, 0);
-      return getMixedColor(culture.color!, 0.25, 0.4);
+      if (type === "Heresy") return getMixedColor(culture.color!, 0.35, 0.2, R.next);
+      if (type === "Cult") return getMixedColor(culture.color!, 0.5, 0, R.next);
+      return getMixedColor(culture.color!, 0.25, 0.4, R.next);
     }
   }
 
@@ -908,7 +914,7 @@ class ReligionsModule {
     return religions;
   }
 
-  private generateHeresies(religions: Religion[], religionIds: Uint16Array): Religion[] {
+  private generateHeresies(religions: Religion[], religionIds: Uint16Array, R: RandomKit): Religion[] {
     const organizedReligions = religions.filter(
       religion =>
         religion.type === "Organized" && !religion.lock && !religion.removed && (religion.expansionism ?? 0) >= 3
@@ -933,12 +939,12 @@ class ReligionsModule {
 
     for (const parent of organizedReligions) {
       const candidates = (boundaryCells.get(parent.i) ?? []).filter(cellId => !occupiedCenters.has(cellId));
-      const count = gauss(0, 1, 0, 3);
+      const count = R.gauss(0, 1, 0, 3);
 
       for (let index = 0; index < count && candidates.length; index++) {
-        const candidateIndex = rand(0, candidates.length - 1);
+        const candidateIndex = R.rand(0, candidates.length - 1);
         const center = candidates.splice(candidateIndex, 1)[0];
-        const heresy = this.createHeresy(parent, center, religions.length + heresies.length, codes);
+        const heresy = this.createHeresy(parent, center, religions.length + heresies.length, codes, R);
         occupiedCenters.add(center);
         codes.push(heresy.code!);
         heresies.push(heresy);
@@ -948,19 +954,19 @@ class ReligionsModule {
     return heresies;
   }
 
-  private createHeresy(parent: Religion, center: number, i: number, codes: string[]): Religion {
-    const [name, expansion] = this.generateReligionName("Heresy", "Heresy", parent.deity ?? "", center);
+  private createHeresy(parent: Religion, center: number, i: number, codes: string[], R?: RandomKit): Religion {
+    const [name, expansion] = this.generateReligionName("Heresy", "Heresy", parent.deity ?? "", center, R);
 
     return {
       i,
       name,
-      color: getMixedColor(parent.color, 0.4, 0.2),
+      color: getMixedColor(parent.color, 0.4, 0.2, R?.next),
       culture: pack.cells.culture[center],
       type: "Heresy",
       form: parent.form,
       deity: parent.deity,
       expansion,
-      expansionism: expansionismMap.Heresy(),
+      expansionism: expansionismMap.Heresy(R),
       center,
       cells: 0,
       area: 0,
@@ -1407,21 +1413,29 @@ class ReligionsModule {
   }
 
   // get supreme deity name
-  getDeityName(culture: number): string | undefined {
+  getDeityName(culture: number, R?: RandomKit): string | undefined {
     if (culture === undefined) {
       ERROR && console.error("Please define a culture");
       return;
     }
-    const meaning = this.generateMeaning();
-    const cultureName = Names.getCulture(culture);
+    const meaning = this.generateMeaning(R);
+    const cultureName = Names.getCulture(culture, undefined, undefined, undefined, R);
     return `${cultureName}, The ${meaning}`;
   }
 
-  private generateReligionName(variety: string, form: string, deity: string, center: number): [string, string] {
+  private generateReligionName(
+    variety: string,
+    form: string,
+    deity: string,
+    center: number,
+    R?: RandomKit
+  ): [string, string] {
     const { cells, cultures, burgs, states } = pack;
+    const rollW = (object: Record<string, number>) => (R ? R.rw(object) : rw(object));
+    const rollA = <T>(array: ArrayLike<T>): T => (R ? R.ra(array) : ra(array));
 
-    const random = () => Names.getCulture(cells.culture[center]);
-    const type = rw(types[form]);
+    const random = () => Names.getCulture(cells.culture[center], undefined, undefined, undefined, R);
+    const type = rollW(types[form]);
     const supreme = deity.split(/[ ,]+/)[0];
     const culture = cultures[cells.culture[center]].name;
 
@@ -1431,46 +1445,47 @@ class ReligionsModule {
 
       const base = burgId ? burgs[burgId].name! : states[stateId].name;
       const name = trimVowels(base.split(/[ ,]+/)[0]);
-      return adj ? getAdjective(name) : name;
+      return adj ? getAdjective(name, R?.next) : name;
     };
 
-    const m = rw(namingMethods[form] || namingMethods[variety]);
+    const m = rollW(namingMethods[form] || namingMethods[variety]);
     if (m === "Random + type") return [`${random()} ${type}`, "global"];
     if (m === "Random + ism") return [`${trimVowels(random())}ism`, "global"];
     if (m === "Supreme + ism" && deity) return [`${trimVowels(supreme)}ism`, "global"];
     if (m === "Faith of + Supreme" && deity)
-      return [`${ra(["Faith", "Way", "Path", "Word", "Witnesses"])} of ${supreme}`, "global"];
+      return [`${rollA(["Faith", "Way", "Path", "Word", "Witnesses"])} of ${supreme}`, "global"];
     if (m === "Place + ism") return [`${place()}ism`, "state"];
     if (m === "Culture + ism") return [`${trimVowels(culture!)}ism`, "culture"];
     if (m === "Place + ian + type") return [`${place(true)} ${type}`, "state"];
     if (m === "Culture + type") return [`${culture} ${type}`, "culture"];
     if (m === "Burg + ian + type") return [`${place(true)} ${type}`, "global"];
-    if (m === "Random + ian + type") return [`${getAdjective(random())} ${type}`, "global"];
-    if (m === "Type + of the + meaning") return [`${type} of the ${this.generateMeaning()}`, "global"];
+    if (m === "Random + ian + type") return [`${getAdjective(random(), R?.next)} ${type}`, "global"];
+    if (m === "Type + of the + meaning") return [`${type} of the ${this.generateMeaning(R)}`, "global"];
     return [`${trimVowels(random())}ism`, "global"]; // else
   }
 
-  private generateMeaning(): string {
-    const a = ra(approaches); // select generation approach
-    if (a === "Number") return ra(base.number);
-    if (a === "Being") return ra(base.being);
-    if (a === "Adjective") return ra(base.adjective);
-    if (a === "Color + Animal") return `${ra(base.color)} ${ra(base.animal)}`;
-    if (a === "Adjective + Animal") return `${ra(base.adjective)} ${ra(base.animal)}`;
-    if (a === "Adjective + Being") return `${ra(base.adjective)} ${ra(base.being)}`;
-    if (a === "Adjective + Genitive") return `${ra(base.adjective)} ${ra(base.genitive)}`;
-    if (a === "Color + Being") return `${ra(base.color)} ${ra(base.being)}`;
-    if (a === "Color + Genitive") return `${ra(base.color)} ${ra(base.genitive)}`;
-    if (a === "Being + of + Genitive") return `${ra(base.being)} of ${ra(base.genitive)}`;
-    if (a === "Being + of the + Genitive") return `${ra(base.being)} of the ${ra(base.theGenitive)}`;
-    if (a === "Animal + of + Genitive") return `${ra(base.animal)} of ${ra(base.genitive)}`;
+  private generateMeaning(R?: RandomKit): string {
+    const rollA = <T>(array: ArrayLike<T>): T => (R ? R.ra(array) : ra(array));
+    const a = rollA(approaches); // select generation approach
+    if (a === "Number") return rollA(base.number);
+    if (a === "Being") return rollA(base.being);
+    if (a === "Adjective") return rollA(base.adjective);
+    if (a === "Color + Animal") return `${rollA(base.color)} ${rollA(base.animal)}`;
+    if (a === "Adjective + Animal") return `${rollA(base.adjective)} ${rollA(base.animal)}`;
+    if (a === "Adjective + Being") return `${rollA(base.adjective)} ${rollA(base.being)}`;
+    if (a === "Adjective + Genitive") return `${rollA(base.adjective)} ${rollA(base.genitive)}`;
+    if (a === "Color + Being") return `${rollA(base.color)} ${rollA(base.being)}`;
+    if (a === "Color + Genitive") return `${rollA(base.color)} ${rollA(base.genitive)}`;
+    if (a === "Being + of + Genitive") return `${rollA(base.being)} of ${rollA(base.genitive)}`;
+    if (a === "Being + of the + Genitive") return `${rollA(base.being)} of the ${rollA(base.theGenitive)}`;
+    if (a === "Animal + of + Genitive") return `${rollA(base.animal)} of ${rollA(base.genitive)}`;
     if (a === "Adjective + Being + of + Genitive")
-      return `${ra(base.adjective)} ${ra(base.being)} of ${ra(base.genitive)}`;
+      return `${rollA(base.adjective)} ${rollA(base.being)} of ${rollA(base.genitive)}`;
     if (a === "Adjective + Animal + of + Genitive")
-      return `${ra(base.adjective)} ${ra(base.animal)} of ${ra(base.genitive)}`;
+      return `${rollA(base.adjective)} ${rollA(base.animal)} of ${rollA(base.genitive)}`;
 
     ERROR && console.error("Unknown generation approach");
-    return ra(base.being);
+    return rollA(base.being);
   }
 }
 

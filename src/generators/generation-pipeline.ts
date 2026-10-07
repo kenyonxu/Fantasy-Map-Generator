@@ -4,6 +4,7 @@ import { GraphOverride } from "@/generators/graph-override";
 import { Pipeline, type PipelineStep } from "@/generators/pipeline";
 import { Population } from "@/generators/population-generator";
 import type { GridGraph } from "@/types/GridGraph";
+import { makeRandom } from "@/utils/random";
 import { Coordinates } from "./coordinates";
 
 const generationPipelineSteps = [
@@ -34,7 +35,7 @@ const generationPipelineSteps = [
   { id: "religions", run: () => Religions.generate() },
   { id: "burgsSpecify", run: () => Burgs.specify() },
   { id: "stateStatistics", run: () => States.collectStatistics() },
-  { id: "stateForms", run: () => States.defineStateForms() },
+  { id: "stateForms", run: () => States.defineStateForms(null, makeRandom(options.map.seed)) },
   { id: "provinces", run: () => Provinces.generate() },
   { id: "provincePoles", run: () => Provinces.getPoles() },
   { id: "riversSpecify", run: () => Rivers.specify() },
@@ -83,7 +84,7 @@ const erasePipelineSteps = [
   { id: "religions", run: () => Religions.generate() },
   { id: "burgsSpecify", run: () => Burgs.specify() },
   { id: "stateStatistics", run: () => States.collectStatistics() },
-  { id: "stateForms", run: () => States.defineStateForms() },
+  { id: "stateForms", run: () => States.defineStateForms(null, makeRandom(options.map.seed)) },
   { id: "provinces", run: () => Provinces.generate() },
   { id: "provincePoles", run: () => Provinces.getPoles() },
   { id: "riversSpecify", run: () => Rivers.specify() },

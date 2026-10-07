@@ -1,7 +1,7 @@
-import Alea from "alea";
 import { min } from "d3";
 import { redrawGlacier, redrawIceberg } from "@/renderers/draw-ice";
-import { clipPoly, getIsolines, lerp, minmax, normalize, P, ra, rand, rn } from "../utils";
+import { clipPoly, getIsolines, lerp, minmax, normalize, ra, rn } from "../utils";
+import { makeRandom } from "../utils/random";
 import type { Point } from "./voronoi";
 
 declare global {
@@ -36,7 +36,7 @@ class IceModule {
     this.clear();
     const { cells, features } = grid;
     const { temp, h } = cells;
-    Math.random = Alea(options.map.seed);
+    const R = makeRandom(options.map.seed);
 
     const ICEBERG_MAX_TEMP = 0;
     const GLACIER_MAX_TEMP = -8;
@@ -63,9 +63,9 @@ class IceModule {
       if (h[cellId] >= 20) continue; // no icebergs on land
       if (t > ICEBERG_MAX_TEMP) continue; // too warm: no icebergs
       if (features[cells.f[cellId]].type === "lake") continue; // no icebergs on lakes
-      if (P(0.8)) continue; // skip most of eligible cells
+      if (R.P(0.8)) continue; // skip most of eligible cells
 
-      const randomFactor = 0.8 + rand() * 0.4; // random size factor
+      const randomFactor = 0.8 + R.rand() * 0.4; // random size factor
       let baseSize = (1 - normalize(t, minMaxTemp, 1)) * 0.8; // size: 0 = zero, 1 = full
       if (cells.t[cellId] === -1) baseSize /= 1.3; // coastline: smaller icebergs
       const size = minmax(rn(baseSize * randomFactor, 2), 0.1, 1);

@@ -9,7 +9,7 @@
 
 原则：
 
-- **行为等价是硬约束**：同一 `options.map.seed` 在迁移前后，生成输出逐字节一致（唯一例外：features-generator 的 Erase 模式，见“已知变化”）。
+- **行为等价的交付口径（最终评审修订）**：交付的保证是两层——①每个生成器自身序列保真：给定自己的种子，其输出确定不变（黄金测试逐生成器锚定）；②迁移后同一 `options.map.seed` 的全图生成确定、可复现。**不承诺**与迁移前共享全局流布局逐字节一致：部分生成器迁移前消费共享流的残留位置，注入化后从各自 `Alea(seed)` 位置 0 起步（完整位移集见“已知变化”）——这在移除共享全局流的目标下不可避免。
 - 策略：**方案 B 助手工厂化**——`probabilityUtils` 的助手逻辑集中不复制，工厂绑定到各生成器自己的 Alea 实例。
 - 范围：本阶段**只改 `src/generators/`**。controllers/components 的 5 处 `Math.random = Alea(...)` 与 `probabilityUtils` 的全局导出签名**不动**。
 - 沿用既定质量门禁：TDD、`npx tsc --noEmit` + `biome check src` + 全量 vitest 全绿、禁 `any`、conventional commits（本阶段多为 `refactor:`）。
@@ -98,7 +98,12 @@ generate(allowErosion = true) {
 ## 已知变化（用户可感知）
 
 - **features-generator Erase 模式**：`features-generator.ts:109` 故意重设种子以在 heightmap edit（Erase mode）时保序——这是与编辑器共用全局序列的隐式契约。注入化后该契约消失，Erase 模式结果可能与迁移前不同。**裁决：可接受**（编辑器场景的可复现性本非用户可感知契约），在 spec 明示并在该生成器黄金测试中固定新行为。
+- **random-template mapSize**：`Coordinates` 注入后，随机模板的 mapSize/latitude 从“继承管线残留流”变为从 `makeRandom(options.map.seed)` 位置 0 起步——同一 seed 的随机模板地图（volcano/archipelago/continents… 加权 roll）的 mapSize/latitude 可能与迁移前不同；固定模板不受影响。已在 coordinates 黄金测试中固定新行为。
+- **值级位移**：zones/journeys 的取值、river 的名称/类型（从 provinces 保留的 `Alea(localSeed)` 流位置 0 起步抽取）、feature 名称（culture 分支经 ambient `Names.getCulture` 在位移后的位置抽取）、states/burgs 的 coa 交错——与迁移前不同。
+- **管线级位移（完整清单，最终评审核定）**：cultures 的选择/放置、burg 的放置/命名、states 的放置（管线路径）、religions、burgsSpecify 细节、state forms/taxes、military notes、markers——迁移前这些步骤消费共享流的残留位置，迁移后各自从全新的 `Alea(options.map.seed)` 位置 0 起步，输出与迁移前不同。
+- **同一 seed 的全图与迁移前不同——这是移除共享全局流的必然结果；迁移后同一 seed 的全图是确定性的且可复现。**
 - 手动“重新生成”（states/cultures 等）从“每次不同”变为“同种子一致”——这是**目标行为**（`States.recreate()` 已先行修复）。
+- **政策注记（供 controllers 阶段）**：本阶段确立“generation path = kit, interactive path = ambient”契约——`grep "Math.random()" src/generators` 留有 12 处已核对的保留点（goods×3 编辑器 reroll 包装 + regenerate 路径、relief×6 渲染路径、routes×1 reroll 包装、markets×1 与 journey-story×1 ambient 兜底），均为有意保留，非泄漏；controllers 阶段沿用此契约。
 
 ## 风险与备注
 

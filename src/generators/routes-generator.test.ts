@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MIN_NAVIGABLE_FLUX } from "./river-generator";
 
 describe("RoutesModule river-aware water cost", () => {
@@ -630,5 +630,161 @@ describe("ensureRouteGroupStyles before a map exists", () => {
 
     expect(() => Routes.ensureRouteGroupStyles()).not.toThrow();
     expect(Object.keys((globalThis as any).styles.routes.groups)).toEqual(["roads"]);
+  });
+});
+
+describe("Routes.generate golden (PRNG)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // Golden for the PRNG injection: generate() must produce the same routes (names included)
+  // whether the naming draws come from the ambient stream (pre-migration, seeded here) or
+  // the generator's own seed-bound kit (post-migration) - both are Alea over options.map.seed.
+  it("reproduces roads, trails, searoutes and their names from a fixed seed", async () => {
+    globalThis.TIME = false;
+    globalThis.Names = (await import("./names-generator")).Names;
+    await import("./pack-generator"); // wires window.Pack (window === globalThis in tests)
+    // @ts-expect-error vendored UMD script without TypeScript declarations
+    (globalThis as any).FlatQueue = (await import("../../public/libs/flatqueue.js")).default;
+    await import("./routes-generator");
+    const Routes = (globalThis as any).Routes;
+
+    const W = 14;
+    const H = 10;
+    const n = W * H;
+    const col = (i: number) => i % W;
+    const row = (i: number) => Math.floor(i / W);
+    const isWater = (i: number) => col(i) >= 11;
+    const neighbors = (i: number) =>
+      [
+        [col(i) - 1, row(i)],
+        [col(i) + 1, row(i)],
+        [col(i), row(i) - 1],
+        [col(i), row(i) + 1]
+      ]
+        .filter(([c, r]) => c >= 0 && c < W && r >= 0 && r < H)
+        .map(([c, r]) => r * W + c);
+    const burgAt = (i: number, cell: number, name: string, capital = 0, port = 0) => ({
+      i,
+      cell,
+      name,
+      capital,
+      port,
+      feature: 1,
+      x: col(cell) * 100 + 50,
+      y: row(cell) * 100 + 50
+    });
+    const haven = new Array(n).fill(0);
+    haven[52] = 53; // port 5 (cell 10,3) leaves through its haven into the channel
+    haven[108] = 109; // port 6 (cell 10,7) likewise
+    globalThis.pack = {
+      burgs: [
+        0,
+        burgAt(1, 30, "Vaerna", 1), // (2,2)
+        burgAt(2, 36, "Ostmouth", 1), // (8,2)
+        burgAt(3, 87, "Rudd"), // (3,6)
+        burgAt(4, 91, "Kern"), // (7,6)
+        burgAt(5, 52, "Milhaven", 0, 2), // (10,3) port on the channel
+        burgAt(6, 108, "Saltbruck", 0, 2) // (10,7)
+      ],
+      rivers: [],
+      routes: [],
+      biomes: Array.from({ length: 12 }, (_, i) => ({ i, habitability: i === 0 ? 0 : 25 + i * 5 })),
+      features: [0, { i: 1, type: "island" }, { i: 2, type: "ocean" }],
+      cells: {
+        i: Array.from({ length: n }, (_, i) => i),
+        c: Array.from({ length: n }, (_, i) => neighbors(i)),
+        p: Array.from({ length: n }, (_, i) => [col(i) * 100, row(i) * 100] as [number, number]),
+        h: Array.from({ length: n }, (_, i) => (isWater(i) ? 5 : 35)),
+        t: Array.from({ length: n }, (_, i) => (isWater(i) ? -1 : 2)),
+        biome: Array.from({ length: n }, () => 5),
+        r: Array.from({ length: n }, () => 0),
+        fl: Array.from({ length: n }, () => 0),
+        g: Array.from({ length: n }, (_, i) => i % 4),
+        f: Array.from({ length: n }, (_, i) => (isWater(i) ? 2 : 1)),
+        burg: (() => {
+          const burg = new Array(n).fill(0);
+          burg[30] = 1;
+          burg[36] = 2;
+          burg[87] = 3;
+          burg[91] = 4;
+          burg[52] = 5;
+          burg[108] = 6;
+          return burg;
+        })(),
+        haven
+      }
+    } as any;
+    globalThis.grid = { cells: { temp: [24, 22, 20, 18] } } as any;
+
+    options.map.seed = "routes-gold";
+    options.map.graph = { width: 1400, height: 1000, points: 10000 };
+    const Alea = (await import("alea")).default;
+    vi.spyOn(Math, "random").mockImplementation(Alea("routes-gold") as () => number);
+
+    Routes.generate();
+
+    const routes = (globalThis.pack as any).routes;
+    expect(
+      routes.map((r: any) => ({
+        i: r.i,
+        group: r.group,
+        name: r.name,
+        feature: r.feature,
+        cells: r.points.map((p: any) => p[2])
+      }))
+    ).toEqual([
+      {
+        i: 0,
+        group: "roads",
+        name: "The Misty Ostmouth highway",
+        feature: 1,
+        cells: [30, 31, 32, 33, 34, 35, 36]
+      },
+      {
+        i: 1,
+        group: "trails",
+        name: "Ostmouth track",
+        feature: 1,
+        cells: [108, 94, 80, 66, 52, 38, 37, 36]
+      },
+      {
+        i: 2,
+        group: "trails",
+        name: "Kernese trail",
+        feature: 1,
+        cells: [94, 93, 92, 91]
+      },
+      {
+        i: 3,
+        group: "trails",
+        name: "Kernese trail",
+        feature: 1,
+        cells: [87, 88, 89, 90, 91]
+      },
+      {
+        i: 4,
+        group: "trails",
+        name: "Ostmouth pass",
+        feature: 1,
+        cells: [92, 78, 64, 50, 36]
+      },
+      {
+        i: 5,
+        group: "trails",
+        name: "Crimson trail",
+        feature: 1,
+        cells: [31, 45, 59, 73, 87]
+      },
+      {
+        i: 6,
+        group: "searoutes",
+        name: "The Obscure Eldritch lane",
+        feature: 2,
+        cells: [52, 53, 67, 81, 95, 109, 108]
+      }
+    ]);
   });
 });

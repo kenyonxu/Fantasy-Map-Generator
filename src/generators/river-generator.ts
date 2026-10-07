@@ -1,4 +1,3 @@
-import Alea from "alea";
 import { curveBasis, curveCatmullRom, line, mean, min, sum } from "d3";
 import { replaceWholeWord } from "@/utils/languageUtils";
 import { requireName } from "@/utils/validationUtils";
@@ -187,7 +186,6 @@ class RiverModule {
   }
 
   generate(allowErosion = true) {
-    Math.random = Alea(options.map.seed);
     this.smallLength = null; // recompute the small/big threshold for this map
     const { cells, features } = pack;
 
@@ -619,6 +617,7 @@ class RiverModule {
 
     const isSmall: boolean = length < (this.smallLength as number);
     const isFork = each(3)(i) && parent && parent !== i;
+    // stays on the shared global stream: specify() runs in the pipeline right after provinces seeded it
     return rw(this.riverTypes[isFork ? "fork" : "main"][isSmall ? "small" : "big"]);
   }
 

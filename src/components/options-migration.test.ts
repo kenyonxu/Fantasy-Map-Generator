@@ -174,6 +174,7 @@ it.each([
 
 it("resolves pins into requests before the geography generator runs", () => {
   globalThis.grid = { ...Grid.generate("geography", 1280, 800), features: [] };
+  options.map.seed = "geography"; // Coordinates.generate now rejects empty seeds (Task 2 guard)
   Pins.set("template", "britain");
   Pins.set("mapSize", 20);
   Pins.set("latitude", 0);

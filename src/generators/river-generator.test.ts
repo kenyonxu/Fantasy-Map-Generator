@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import Alea from "alea";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MIN_NAVIGABLE_FLUX } from "./river-generator";
 
 describe("RiverModule helpers", () => {
@@ -247,5 +248,123 @@ describe("addDownhill cell 0", () => {
 
     Rivers.addDownhill(0);
     expect(globalThis.pack.cells.r[0]).not.toBe(0); // cell 0 was claimed by a river
+  });
+});
+
+// PRNG injection golden: generate() consumes no randomness itself (meander and Lakes are pure), so the
+// seeding that matters is the test's Alea(options.map.seed) and the global draws specify() makes for
+// river types. generate()'s own global re-seed removal must not move a single draw.
+describe("river generation golden (PRNG injection)", () => {
+  let Rivers: any;
+
+  beforeAll(async () => {
+    globalThis.window = globalThis.window || ({} as any);
+    await import("./river-generator");
+    Rivers = (globalThis as any).Rivers;
+  });
+
+  // two valleys: river 1 (cells 0-1) joins river 2 (cells 6-2-3-4) which exits into the ocean at cell 5
+  function buildFixture() {
+    globalThis.TIME = false;
+    globalThis.WARN = false;
+    globalThis.options = {
+      map: { seed: "golden-seed", graph: { points: 10000, width: 100, height: 100 } },
+      generation: { resolveDepressionsSteps: 250 }
+    } as any;
+    globalThis.grid = { cells: { prec: [40, 40, 40, 40, 40, 40, 40, 40] } } as any;
+    globalThis.Lakes = {
+      detectCloseLakes: () => {},
+      defineClimateData: () => [],
+      cleanupLakeData: () => {}
+    } as any;
+    globalThis.Names = { getCulture: () => "Ald" } as any;
+    globalThis.pack = {
+      cells: {
+        i: [0, 1, 2, 3, 4, 5, 6, 7],
+        c: [[1], [0, 2], [1, 3, 7], [2, 4], [3, 5], [4], [7], [6, 2]],
+        g: [0, 1, 2, 3, 4, 5, 6, 7],
+        h: [40, 35, 30, 25, 20, 10, 38, 36],
+        t: [1, 1, 1, 1, 1, 0, 1, 1],
+        b: [0, 0, 0, 0, 0, 0, 0, 0],
+        f: [1, 1, 1, 1, 1, 1, 1, 1],
+        haven: [0, 0, 0, 0, 0, 0, 0, 0],
+        p: [
+          [10, 20],
+          [20, 20],
+          [30, 20],
+          [40, 20],
+          [50, 20],
+          [60, 20],
+          [25, 10],
+          [27, 15]
+        ],
+        culture: [0, 0, 0, 0, 0, 0, 0, 0]
+      },
+      features: [0, { i: 1, type: "ocean" }], // pack.features[0] is the real module's numeric placeholder
+      rivers: []
+    } as any;
+  }
+
+  function runGeneration(seed = "golden-seed") {
+    globalThis.options.map.seed = seed;
+    Math.random = Alea(seed);
+    Rivers.generate(true);
+    Rivers.specify();
+    return {
+      cellsR: Array.from(globalThis.pack.cells.r),
+      rivers: JSON.parse(JSON.stringify(globalThis.pack.rivers))
+    };
+  }
+
+  it("generates cells.r and pack.rivers deterministically from the seeded stream", () => {
+    buildFixture();
+    const run = runGeneration();
+    expect(run.cellsR).toEqual([1, 1, 1, 2, 2, 0, 2, 2]);
+    expect(run.rivers).toEqual([
+      {
+        i: 1,
+        source: 0,
+        mouth: 1,
+        discharge: 80,
+        length: 20.99,
+        width: 0.04,
+        widthFactor: 1,
+        sourceWidth: 0.06,
+        parent: 2,
+        cells: [0, 1, 2],
+        basin: 2,
+        name: "Ald",
+        type: "Creek"
+      },
+      {
+        i: 2,
+        source: 6,
+        mouth: 4,
+        discharge: 280,
+        length: 42.85,
+        width: 0.12,
+        widthFactor: 1.2,
+        sourceWidth: 0.06,
+        parent: 2,
+        cells: [6, 7, 2, 3, 4, 5],
+        basin: 2,
+        name: "Ald",
+        type: "River"
+      }
+    ]);
+  });
+
+  it("reproduces the same output on a fresh reseed", () => {
+    buildFixture();
+    const first = runGeneration();
+    buildFixture();
+    expect(runGeneration()).toEqual(first);
+  });
+
+  it("rolls different river types under a different seed", () => {
+    buildFixture();
+    const baseline = runGeneration();
+    buildFixture();
+    expect(runGeneration("golden-seed-6").rivers).not.toEqual(baseline.rivers); // Creek vs Brook
   });
 });

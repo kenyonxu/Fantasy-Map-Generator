@@ -1,7 +1,7 @@
-import Alea from "alea";
 import { color, shuffler } from "d3";
 import { Icons } from "@/components/icons";
 import { requireColor } from "@/utils/colorUtils";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireName } from "@/utils/validationUtils";
 import type { IconSet } from "../types/icons";
 import type { PackedGraph } from "../types/PackedGraph";
@@ -984,8 +984,8 @@ export class GoodsModule {
 
   // Place a bonus good on every eligible cell based on the current catalogue
   generate(config: { randomSeed?: number } = {}) {
-    Math.random = Alea(config.randomSeed ?? options.map.seed);
-    const shuffle = shuffler(() => Math.random());
+    const R = makeRandom(config.randomSeed ?? options.map.seed);
+    const shuffle = shuffler(() => R.next());
 
     if (!pack.goods?.length) this.restoreDefaults();
 
@@ -1016,10 +1016,10 @@ export class GoodsModule {
       for (const good of goods) {
         if (!good.distribution || !good.chance) continue;
         if (resources[good.i] >= resourceMaxCells) continue;
-        if (Math.random() * 100 > good.chance) continue;
+        if (R.next() * 100 > good.chance) continue;
 
         const spread = compiledSpreads.get(good.i)!;
-        if (!spread(this.getMethods())) continue;
+        if (!spread(this.getMethods(undefined, R))) continue;
 
         this.cells.good[cellId] = good.i;
         resources[good.i] = (resources[good.i] || 0) + 1;
@@ -1078,13 +1078,14 @@ export class GoodsModule {
     this.sync();
   }
 
-  getMethods(cellId: number = this.cellId) {
+  getMethods(cellId: number = this.cellId, R?: RandomKit) {
+    const next = R ? R.next : Math.random;
     return {
-      random: (number: number) => number >= 100 || (number > 0 && number / 100 > Math.random()),
+      random: (number: number) => number >= 100 || (number > 0 && number / 100 > next()),
       nth: (number: number) => !(cellId % number),
       minHabitability: (min: number) => pack.biomes[pack.cells.biome[cellId]].habitability >= min,
-      habitability: () => pack.biomes[this.cells.biome[cellId]].habitability > Math.random() * 100,
-      elevation: () => pack.cells.h[cellId] / 100 > Math.random(),
+      habitability: () => pack.biomes[this.cells.biome[cellId]].habitability > next() * 100,
+      elevation: () => pack.cells.h[cellId] / 100 > next(),
       biome: (...biomes: number[]) => biomes.includes(pack.cells.biome[cellId]),
       minHeight: (heigh: number) => pack.cells.h[cellId] >= heigh,
       maxHeight: (heigh: number) => pack.cells.h[cellId] <= heigh,

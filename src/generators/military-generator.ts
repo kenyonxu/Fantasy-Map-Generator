@@ -1,12 +1,20 @@
 import { quadtree, sum } from "d3";
 import { Icons } from "@/components/icons";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireName, requireOneOf } from "@/utils/validationUtils";
-import { findAllInQuadtree, gauss, minmax, nth, ra, rand, rn, si } from "../utils";
+import { findAllInQuadtree, gauss, generateSeed, minmax, nth, ra, rand, rn, si } from "../utils";
 import type { State } from "./states-generator";
 
 declare global {
   var Military: MilitaryModule;
 }
+
+// without a kit, editor callers (regiment editors) draw the ambient global stream
+const pick = <T>(R: RandomKit | undefined, array: ArrayLike<T>): T => (R ? R.ra(array) : ra(array));
+const rollInt = (R: RandomKit | undefined, min?: number, max?: number): number =>
+  R ? R.rand(min, max) : rand(min, max);
+const rollGauss = (R: RandomKit | undefined, expected = 100, deviation = 30, min = 0, max = 300, round = 0): number =>
+  R ? R.gauss(expected, deviation, min, max, round) : gauss(expected, deviation, min, max, round);
 
 export interface Regiment {
   i: number;
@@ -47,11 +55,12 @@ interface Platoon {
 }
 
 class MilitaryModule {
+  // a fresh seed per click, so the regenerate button rerolls (Routes.regenerate precedent); the pipeline uses generate()
   regenerate(): void {
-    this.generate();
+    this.generate(makeRandom(generateSeed()));
   }
 
-  generate() {
+  generate(R: RandomKit = makeRandom(options.map.seed)) {
     const { cells, states } = pack;
     const { p } = cells;
     const valid = states.filter(s => s.i && !s.removed); // valid states
@@ -443,7 +452,7 @@ class MilitaryModule {
       regiments.forEach((r: Omit<Regiment, "s" | "t" | "type">) => {
         r.name = this.getName(r as Regiment, regiments as Regiment[]);
         r.icon = this.getEmblem(r as Regiment);
-        this.generateNote(r as Regiment, s);
+        this.generateNote(r as Regiment, s, R);
       });
 
       return regiments as Regiment[];
@@ -531,7 +540,7 @@ class MilitaryModule {
     return reg.a > (reg.n ? 999 : 99999) ? si(reg.a) : reg.a;
   }
 
-  generateNote(r: Regiment, s: State) {
+  generateNote(r: Regiment, s: State, R?: RandomKit) {
     const cells = pack.cells;
     const base =
       cells.burg[r.cell] && pack.burgs[cells.burg[r.cell]]
@@ -550,10 +559,10 @@ class MilitaryModule {
       ? `\r\n\r\nRegiment composition in ${options.map.lore.calendar.year} ${options.map.lore.calendar.eraShort}:\r\n${composition}.`
       : "";
 
-    const campaign = s.campaigns ? ra(s.campaigns) : null;
+    const campaign = s.campaigns ? pick(R, s.campaigns) : null;
     const year = campaign
-      ? rand(campaign.start, campaign.end || options.map.lore.calendar.year)
-      : gauss(options.map.lore.calendar.year - 100, 150, 1, options.map.lore.calendar.year - 6);
+      ? rollInt(R, campaign.start, campaign.end || options.map.lore.calendar.year)
+      : rollGauss(R, options.map.lore.calendar.year - 100, 150, 1, options.map.lore.calendar.year - 6);
     const conflict = campaign ? ` during the ${campaign.name}` : "";
     r.note = `Regiment was formed in ${year} ${options.map.lore.calendar.era}${conflict}. ${station}${troops}`;
   }

@@ -2,8 +2,9 @@ import { max, quadtree, range } from "d3";
 import { Emblems } from "@/generators/emblems-generator";
 import type { Emblem } from "@/types/emblems";
 import { requireColor } from "@/utils/colorUtils";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireCode, requireName, requireOneOf, requireOrigins } from "@/utils/validationUtils";
-import { abbreviate, biased, getColors, getRandomColor, minmax, P, rand, rn, rw } from "../utils";
+import { abbreviate, getColors, getRandomColor, minmax, rand, rn, rw } from "../utils";
 import { priorityFlood } from "./flood";
 import { Population } from "./population-generator";
 
@@ -58,12 +59,13 @@ export const DEFAULT_CULTURE_TYPE: CultureType = "Generic";
 class CulturesGenerator {
   cells: any;
 
-  getRandomShield() {
-    const type = rw(Emblems.shields.types);
-    return rw(Emblems.shields[type]);
+  // without a kit, direct callers (the cultures editor) draw the ambient global stream
+  getRandomShield(R?: RandomKit) {
+    const type = R ? R.rw(Emblems.shields.types) : rw(Emblems.shields.types);
+    return R ? R.rw(Emblems.shields[type]) : rw(Emblems.shields[type]);
   }
 
-  getDefault(count: number = 0): Omit<Culture, "i" | "type">[] {
+  getDefault(count: number = 0, R?: RandomKit): Omit<Culture, "i" | "type">[] {
     // generic sorting functions
     const cells = pack.cells,
       s = cells.s,
@@ -287,7 +289,7 @@ class CulturesGenerator {
     }
 
     if (options.map.cultures.set === "english") {
-      const getName = () => Names.getBase(1, 5, 9, "");
+      const getName = () => Names.getBase(1, 5, 9, "", R);
       return [
         { name: getName(), base: 1, odd: 1, shield: "heater" },
         { name: getName(), base: 1, odd: 1, shield: "wedged" },
@@ -794,9 +796,9 @@ class CulturesGenerator {
 
     if (options.map.cultures.set === "random") {
       return range(count).map(() => {
-        const rnd = rand(Names.nameBases.length - 1);
-        const name = Names.getBaseShort(rnd);
-        return { name, base: rnd, odd: 1, shield: this.getRandomShield() };
+        const rnd = R ? R.rand(Names.nameBases.length - 1) : rand(Names.nameBases.length - 1);
+        const name = Names.getBaseShort(rnd, R);
+        return { name, base: rnd, odd: 1, shield: this.getRandomShield(R) };
       });
     }
 
@@ -1037,6 +1039,7 @@ class CulturesGenerator {
   }
 
   generate(): CulturesClimateReport {
+    const R = makeRandom(options.map.seed);
     options.map.cultures.set = options.generation.cultures.set;
     this.cells = pack.cells;
     const cultureIds = new Uint16Array(this.cells.i.length); // cell cultures
@@ -1075,7 +1078,7 @@ class CulturesGenerator {
     }
 
     const selectCultures = (culturesNumber: number): Culture[] => {
-      const defaultCultures = this.getDefault(culturesNumber);
+      const defaultCultures = this.getDefault(culturesNumber, R);
       const cultures: Culture[] = [];
 
       pack.cultures?.forEach(culture => {
@@ -1089,10 +1092,10 @@ class CulturesGenerator {
 
       for (let culture: Culture, rnd: number, i = 0; cultures.length < culturesNumber && defaultCultures.length > 0; ) {
         do {
-          rnd = rand(defaultCultures.length - 1);
+          rnd = R.rand(defaultCultures.length - 1);
           culture = defaultCultures[rnd] as Culture;
           i++;
-        } while (i < 200 && !P(culture.odd as number));
+        } while (i < 200 && !R.P(culture.odd as number));
         cultures.push(culture);
         defaultCultures.splice(rnd, 1);
       }
@@ -1102,7 +1105,7 @@ class CulturesGenerator {
     const cultures = selectCultures(count);
     pack.cultures = cultures;
     const centers = quadtree<number>();
-    const colors = getColors(count);
+    const colors = getColors(count, R.next);
     const emblemShape = Emblems.shape;
 
     const codes: string[] = [];
@@ -1116,7 +1119,7 @@ class CulturesGenerator {
 
       let cellId = 0;
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
-        cellId = sorted[biased(0, max, 5)];
+        cellId = sorted[R.biased(0, max, 5)];
         spacing *= 0.9;
         if (!cultureIds[cellId] && !centers.find(this.cells.p[cellId][0], this.cells.p[cellId][1], spacing)) break;
       }
@@ -1131,9 +1134,9 @@ class CulturesGenerator {
       const f = pack.features[this.cells.f[this.cells.haven[i]]]; // opposite feature
       if (f.type === "lake" && f.cells > 5) return "Lake"; // low water cross penalty and high for growth not along coastline
       if (
-        (this.cells.harbor[i] && f.type !== "lake" && P(0.1)) ||
-        (this.cells.harbor[i] === 1 && P(0.6)) ||
-        (pack.features[this.cells.f[i]].subtype === "isle" && P(0.4))
+        (this.cells.harbor[i] && f.type !== "lake" && R.P(0.1)) ||
+        (this.cells.harbor[i] === 1 && R.P(0.6)) ||
+        (pack.features[this.cells.f[i]].subtype === "isle" && R.P(0.4))
       )
         return "Naval"; // low water cross penalty and high for non-along-coastline growth
       if (this.cells.r[i] && this.cells.fl[i] > 100) return "River"; // no River cross penalty, penalty for non-River growth
@@ -1149,7 +1152,7 @@ class CulturesGenerator {
       else if (type === "Nomadic") base = 1.5;
       else if (type === "Hunting") base = 0.7;
       else if (type === "Highland") base = 1.2;
-      return rn(((Math.random() * options.generation.cultures.sizeVariety) / 2 + 1) * base, 1);
+      return rn(((R.next() * options.generation.cultures.sizeVariety) / 2 + 1) * base, 1);
     };
 
     cultures.forEach((c: Culture, i: number) => {
@@ -1182,7 +1185,7 @@ class CulturesGenerator {
       c.code = abbreviate(c.name, codes);
       codes.push(c.code);
       cultureIds[center] = newId;
-      if (emblemShape === "random") c.shield = this.getRandomShield();
+      if (emblemShape === "random") c.shield = this.getRandomShield(R);
     });
 
     this.cells.culture = cultureIds;
