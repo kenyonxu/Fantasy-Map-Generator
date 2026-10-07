@@ -1,5 +1,6 @@
 import { randomNormal } from "d3";
 import { minmax, rn } from "./numberUtils";
+import type { RandomKit } from "./random";
 
 /**
  * Creates a random number between min and max (inclusive). If only one argument is provided, it will be considered as max and min will be 0. If no arguments are provided, it returns a random float between 0 and 1.
@@ -103,14 +104,17 @@ const ERROR = false;
 /**
  * Get number from string in format "1-3" or "2" or "0.5"
  * @param {string} r - range string
+ * @param {RandomKit} [R] - seed-bound kit; without it the ambient global stream is drawn
  * @return {number} parsed number
  */
-export const getNumberInRange = (r: string): number => {
+export const getNumberInRange = (r: string, R?: RandomKit): number => {
   if (typeof r !== "string") {
     ERROR && console.error("Range value should be a string", r);
     return 0;
   }
-  if (!Number.isNaN(+r)) return ~~r + +P(+r - ~~r);
+  const randRange = R ? R.rand : rand;
+  const useP = R ? R.P : P;
+  if (!Number.isNaN(+r)) return ~~r + +useP(+r - ~~r);
   const sign = r[0] === "-" ? -1 : 1;
   if (Number.isNaN(+r[0])) r = r.slice(1);
   const range = r.includes("-") ? r.split("-") : null;
@@ -118,7 +122,7 @@ export const getNumberInRange = (r: string): number => {
     ERROR && console.error("Cannot parse the number. Check the format", r);
     return 0;
   }
-  const count = rand(parseFloat(range[0]) * sign, +parseFloat(range[1]));
+  const count = randRange(parseFloat(range[0]) * sign, +parseFloat(range[1]));
   if (Number.isNaN(count) || count < 0) {
     ERROR && console.error("Cannot parse number. Check the format", r);
     return 0;
