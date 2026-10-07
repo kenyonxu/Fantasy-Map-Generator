@@ -1,5 +1,6 @@
 // Where the map sits on the globe: its share of the world and the resulting lat/lon box
-import { gauss, P, rn } from "../utils";
+import { rn } from "../utils";
+import { makeRandom, type RandomKit } from "../utils/random";
 
 declare global {
   var Coordinates: CoordinatesModule;
@@ -56,8 +57,9 @@ const RANDOM_SIZE: Record<string, [number, number, number, number]> = {
 
 class CoordinatesModule {
   generate(): void {
+    const R = makeRandom(options.map.seed); // seed-bound: mapSize no longer depends on pipeline draw history
     const partial = grid.features.some(feature => feature.land && feature.border);
-    const [mapSize, latitude, longitude] = this.getSizeAndPosition(options.generation.template, partial);
+    const [mapSize, latitude, longitude] = this.getSizeAndPosition(R, options.generation.template, partial);
     const requested = options.generation.geography;
     const geography = options.map.geography;
     geography.mapSize = requested.mapSize ?? mapSize;
@@ -83,19 +85,19 @@ class CoordinatesModule {
     options.map.geography.coordinates = { latT, latN, latS, lonT, lonW, lonE };
   }
 
-  private getSizeAndPosition(template: string, isPartial: boolean): SizeAndPosition {
+  private getSizeAndPosition(R: RandomKit, template: string, isPartial: boolean): SizeAndPosition {
     const realWorldPosition = TEMPLATE_POSITIONS[template];
     if (realWorldPosition) return realWorldPosition;
 
-    if (!isPartial && P(WHOLE_WORLD_CHANCE[template] ?? 0)) return [100, 50, 50];
+    if (!isPartial && R.P(WHOLE_WORLD_CHANCE[template] ?? 0)) return [100, 50, 50];
 
     const maxSize = isPartial ? 80 : 100;
     // Continents, Archipelago, High Island and Low Island fall back to the default distribution
     const [expected, deviation, min, max] = RANDOM_SIZE[template] ?? [30, 20, 15, maxSize];
     const round = template === "atoll" ? 1 : 0;
 
-    const size = gauss(expected, deviation, min, Math.min(max, maxSize), round);
-    const latitude = gauss(P(0.5) ? 40 : 60, 20, 25, 75); // latitude shift
+    const size = R.gauss(expected, deviation, min, Math.min(max, maxSize), round);
+    const latitude = R.gauss(R.P(0.5) ? 40 : 60, 20, 25, 75); // latitude shift
     return [size, latitude, 50];
   }
 }

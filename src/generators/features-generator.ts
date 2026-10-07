@@ -1,4 +1,3 @@
-import Alea from "alea";
 import { polygonArea } from "d3";
 import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireName, requireOneOf } from "@/utils/validationUtils";
@@ -107,8 +106,6 @@ class FeatureModule {
    * mark Grid features (ocean, lakes, islands) and calculate distance field
    */
   markupGrid() {
-    Math.random = Alea(options.map.seed); // get the same result on heightmap edit in Erase mode
-
     const { h: heights, c: neighbors, b: borderCells, i } = grid.cells;
     const cellsNumber = i.length;
     const distanceField = new Int8Array(cellsNumber); // gird.cells.t
