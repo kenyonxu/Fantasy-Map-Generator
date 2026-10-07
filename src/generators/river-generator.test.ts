@@ -367,4 +367,23 @@ describe("river generation golden (PRNG injection)", () => {
     buildFixture();
     expect(runGeneration("golden-seed-6").rivers).not.toEqual(baseline.rivers); // Creek vs Brook
   });
+
+  it("kit-driven specify produces deterministic river types from the seed", async () => {
+    const { makeRandom } = await import("@/utils/random");
+    buildFixture();
+    globalThis.options.map.seed = "golden-seed";
+    Math.random = Alea("golden-seed");
+    Rivers.generate(true);
+    Rivers.specify(makeRandom("golden-seed")); // pipeline path: kit-bound
+    const first = globalThis.pack.rivers.map((r: any) => r.type);
+
+    buildFixture();
+    globalThis.options.map.seed = "golden-seed";
+    Math.random = Alea("golden-seed");
+    Rivers.generate(true);
+    Rivers.specify(makeRandom("golden-seed"));
+    const second = globalThis.pack.rivers.map((r: any) => r.type);
+
+    expect(second).toEqual(first); // same seed → same types via kit
+  });
 });

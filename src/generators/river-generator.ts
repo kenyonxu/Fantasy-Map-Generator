@@ -1,5 +1,6 @@
 import { curveBasis, curveCatmullRom, line, mean, min, sum } from "d3";
 import { replaceWholeWord } from "@/utils/languageUtils";
+import type { RandomKit } from "@/utils/random";
 import { requireName } from "@/utils/validationUtils";
 import { each, rn, round, rw } from "../utils";
 import { meander, projectToNearestEdge } from "../utils/pathUtils";
@@ -593,32 +594,34 @@ class RiverModule {
     return round(right + left, 1);
   }
 
-  specify() {
+  specify(R?: RandomKit) {
     const rivers = pack.rivers;
     if (!rivers.length) return;
 
     for (const river of rivers) {
       river.parent = this.getParent(river.i);
       river.basin = this.getBasin(river.i);
-      river.name = this.getName(river.mouth);
-      river.type = this.getType(river);
+      river.name = this.getName(river.mouth, R);
+      river.type = this.getType(river, R);
     }
   }
 
-  getName(cell: number) {
-    return Names.getCulture(pack.cells.culture[cell]);
+  getName(cell: number, R?: RandomKit) {
+    return Names.getCulture(pack.cells.culture[cell], undefined, undefined, undefined, R);
   }
 
-  getType({ i, length, parent }: River) {
+  getType({ i, length, parent }: River, R?: RandomKit) {
     if (this.smallLength === null) {
       const threshold = Math.ceil(pack.rivers.length * 0.15);
-      this.smallLength = pack.rivers.map(r => r.length || 0).sort((a: number, b: number) => a - b)[threshold];
+      this.smallLength = pack.rivers.map(r => r.length || 0).sort((a, b) => a - b)[threshold];
     }
 
     const isSmall: boolean = length < (this.smallLength as number);
     const isFork = each(3)(i) && parent && parent !== i;
-    // stays on the shared global stream: specify() runs in the pipeline right after provinces seeded it
-    return rw(this.riverTypes[isFork ? "fork" : "main"][isSmall ? "small" : "big"]);
+    // kit when threaded (pipeline/editor), ambient otherwise (legacy callers)
+    return R
+      ? R.rw(this.riverTypes[isFork ? "fork" : "main"][isSmall ? "small" : "big"])
+      : rw(this.riverTypes[isFork ? "fork" : "main"][isSmall ? "small" : "big"]);
   }
 
   getApproximateLength(points: Point[] = []) {

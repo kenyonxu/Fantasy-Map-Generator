@@ -4,6 +4,7 @@ import { Layers } from "@/components/layers";
 import { Pins } from "@/components/pins";
 import { tip } from "@/components/tooltips";
 import { convertTemperature, ensureEl, findEl, getKmInDistanceUnit, parseTransform, rn, round } from "../utils";
+import { makeRandom } from "../utils/random";
 
 const projection = geoOrthographic().translate([100, 100]).scale(100);
 const path = geoPath(projection);
@@ -307,7 +308,7 @@ function updateWorld(): void {
   Precipitation.generate();
   const heights = new Uint8Array(pack.cells.h);
   Rivers.generate();
-  Rivers.specify();
+  Rivers.specify(makeRandom(options.map.seed)); // map-wide regen: seed-bound, deterministic
   pack.cells.h = new Float32Array(heights);
   Biomes.define();
   Features.defineGroups();

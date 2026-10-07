@@ -1,4 +1,3 @@
-import Alea from "alea";
 import { max } from "d3";
 import { Emblems } from "@/generators/emblems-generator";
 import type { Emblem } from "@/types/emblems";
@@ -84,9 +83,6 @@ class ProvinceModule {
 
   generate(regenerate = false, regenerateLockedStates = false) {
     const localSeed = regenerate ? generateSeed() : options.map.seed;
-    // Reseed the ambient stream on purpose: Rivers.specify() runs in the pipeline right after
-    // this step and reads it (documented PRNG exception, task ledger 2026-10-07-prng-injection).
-    Math.random = Alea(localSeed);
     const R = makeRandom(localSeed);
 
     const { cells, states, burgs } = pack;

@@ -50,6 +50,7 @@ import {
 } from "../utils";
 import { createBrushStroke } from "../utils/brushUtils";
 import type { PromptOptions } from "../utils/commonUtils";
+import { makeRandom } from "../utils/random";
 
 // the palette the image converter paints heights with: spectral, blue-low to red-high
 const heightColor = scaleSequential(interpolateSpectral);
@@ -776,7 +777,7 @@ function restoreRiskedData(): void {
   States.collectStatistics();
 
   if (erosionAllowed) {
-    Rivers.specify();
+    Rivers.specify(makeRandom(generateSeed())); // editor path: fresh seed so re-applies reroll
     Features.defineNames();
   }
 
