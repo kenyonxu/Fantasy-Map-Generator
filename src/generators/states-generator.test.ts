@@ -556,3 +556,121 @@ describe("States.regenerate determinism", () => {
     expect(secondRun).toBe(firstRun);
   });
 });
+
+// Golden for the PRNG injection: generate() must produce the same states whether its draws come
+// from the ambient stream (pre-migration, seeded here) or the generator's own seed-bound kit
+// (post-migration) - both are Alea over options.map.seed, drawn in the same call order. Emblems
+// is stubbed (it stays on the ambient stream) and getPoles with it (geometry, no draws).
+describe("States.generate golden (PRNG)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("reproduces states, campaigns and diplomacy from a fixed seed", async () => {
+    const NamesModule = await import("./names-generator"); // real Names: state names roll from its bases
+    globalThis.Names = NamesModule.Names;
+    await import("./states-generator");
+    // @ts-expect-error vendored UMD script without TypeScript declarations
+    (globalThis as any).FlatQueue = (await import("../../public/libs/flatqueue.js")).default;
+    const Alea = (await import("alea")).default;
+    const { Emblems } = await import("./emblems-generator");
+    vi.spyOn(Emblems, "generate").mockImplementation((() => ({ shield: "x" })) as any);
+    vi.spyOn(Emblems, "getShield").mockReturnValue("x" as any);
+    vi.spyOn((globalThis as any).States, "getPoles").mockImplementation(() => {});
+
+    const n = 40;
+    const burgAt = (i: number, cell: number, culture: number, name: string, capital = 1) => ({
+      i,
+      cell,
+      x: (cell % 8) * 200,
+      y: Math.floor(cell / 8) * 300,
+      name,
+      culture,
+      capital,
+      population: 10 + i
+    });
+    const cells = {
+      i: Array.from({ length: n }, (_, i) => i),
+      c: Array.from({ length: n }, (_, i) => [i - 1, i + 1].filter(x => x >= 0 && x < n)),
+      p: Array.from({ length: n }, (_, i) => [(i % 8) * 200, Math.floor(i / 8) * 300] as [number, number]),
+      state: new Uint16Array(n),
+      culture: Uint16Array.from(Array.from({ length: n }, (_, i) => (i < 20 ? 1 : 2))),
+      biome: new Array(n).fill(5),
+      h: new Array(n).fill(35),
+      s: Array.from({ length: n }, (_, i) => ((i * 11) % 17) + 2),
+      t: new Array(n).fill(-1),
+      r: new Array(n).fill(0),
+      fl: new Array(n).fill(0),
+      burg: (() => {
+        const burg = new Array(n).fill(0);
+        burg[2] = 1;
+        burg[12] = 2;
+        burg[15] = 5;
+        burg[22] = 3;
+        burg[32] = 4;
+        return burg;
+      })(),
+      f: new Array(n).fill(0),
+      pop: new Array(n).fill(5),
+      area: new Array(n).fill(8)
+    };
+    vi.stubGlobal("pack", {
+      cells,
+      biomes: [
+        { i: 0, cost: 0 },
+        { i: 1, cost: 10 },
+        { i: 2, cost: 20 },
+        { i: 3, cost: 30 },
+        { i: 4, cost: 40 },
+        { i: 5, cost: 50 }
+      ],
+      features: [{ i: 0, type: "ocean", cells: 0 }],
+      cultures: [
+        { i: 0, type: "Generic", base: 0 },
+        { i: 1, type: "Generic", center: 2, base: 1 },
+        { i: 2, type: "Naval", center: 22, base: 5 }
+      ],
+      burgs: [
+        0,
+        burgAt(1, 2, 1, "Va"),
+        burgAt(2, 12, 1, "Kol"),
+        burgAt(3, 22, 2, "Rav"),
+        burgAt(4, 32, 2, "Ost"),
+        burgAt(5, 15, 1, "Dol", 0)
+      ],
+      states: []
+    });
+
+    options = Options.getDefaultOptions();
+    options.map.seed = "states-gold";
+    vi.spyOn(Math, "random").mockImplementation(Alea("states-gold") as () => number);
+
+    States.generate();
+
+    const pack = globalThis.pack as any;
+    const summary = pack.states.map((s: any) => ({
+      i: s.i,
+      name: s.name,
+      capital: s.capital,
+      center: s.center,
+      culture: s.culture,
+      expansionism: s.expansionism,
+      type: s.type,
+      color: s.color,
+      campaigns: (s.campaigns ?? []).map((c: any) => c.name),
+      diplomacy: s.diplomacy
+    }));
+    expect(summary).toEqual([
+      { i: 0, name: "Neutrals", campaigns: [] },
+      { i: 1, name: "Hathia", capital: 1, center: 2, culture: 1, expansionism: 4.4, type: "Generic", campaigns: [] },
+      { i: 2, name: "Wathamia", capital: 2, center: 12, culture: 1, expansionism: 2.2, type: "Generic", campaigns: [] },
+      { i: 3, name: "Sterzhokia", capital: 3, center: 22, culture: 2, expansionism: 1.2, type: "Naval", campaigns: [] },
+      { i: 4, name: "Nichalia", capital: 4, center: 32, culture: 2, expansionism: 4.4, type: "Naval", campaigns: [] }
+    ]);
+    expect([...cells.state]).toEqual([
+      0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 0, 0, 0, 0,
+      0, 0
+    ]);
+  });
+});

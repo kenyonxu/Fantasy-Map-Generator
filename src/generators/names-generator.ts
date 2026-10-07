@@ -1,5 +1,6 @@
 import { tip } from "@/components/tooltips";
 import { getDefaultNameBases, type NameBase } from "@/data/name-bases";
+import type { RandomKit } from "@/utils/random";
 import { capitalize, isVowel, last, P, ra, rand } from "../utils";
 
 declare global {
@@ -66,8 +67,21 @@ class NamesGenerator {
     this.chains = [];
   }
 
+  // without a kit, direct callers (editors, IO) draw the ambient global stream
+  private roll(R: RandomKit | undefined, probability: number): boolean {
+    return R ? R.P(probability) : P(probability);
+  }
+
+  private pick<T>(R: RandomKit | undefined, array: ArrayLike<T>): T {
+    return R ? R.ra(array) : ra(array);
+  }
+
+  private rollInt(R: RandomKit | undefined, min?: number, max?: number): number {
+    return R ? R.rand(min, max) : rand(min, max);
+  }
+
   // generate name using Markov's chain
-  getBase(base: number, min?: number, max?: number, dupl?: string): string {
+  getBase(base: number, min?: number, max?: number, dupl?: string, R?: RandomKit): string {
     if (base === undefined) {
       ERROR && console.error("Please define a base");
       return "ERROR";
@@ -97,7 +111,7 @@ class NamesGenerator {
     if (dupl !== "") dupl = this.nameBases[base].d;
 
     let v = data[""],
-      cur = ra(v),
+      cur = this.pick(R, v),
       w = "";
     for (let i = 0; i < 20; i++) {
       if (cur === "") {
@@ -116,7 +130,7 @@ class NamesGenerator {
       }
 
       w += cur;
-      cur = ra(v);
+      cur = this.pick(R, v);
     }
 
     // parse word to get a final name
@@ -143,36 +157,36 @@ class NamesGenerator {
 
     if (name.length < 2) {
       ERROR && console.error("Name is too short! Random name will be selected");
-      name = ra(this.nameBases[base].b.split(","));
+      name = this.pick(R, this.nameBases[base].b.split(","));
     }
 
     return name;
   }
 
   // generate name for culture
-  getCulture(culture: number, min?: number, max?: number, dupl?: string): string {
+  getCulture(culture: number, min?: number, max?: number, dupl?: string, R?: RandomKit): string {
     if (culture === undefined) {
       ERROR && console.error("Please define a culture");
       return "ERROR";
     }
     const base = pack.cultures[culture].base;
-    return this.getBase(base, min, max, dupl);
+    return this.getBase(base, min, max, dupl, R);
   }
 
   // generate short name for culture
-  getCultureShort(culture: number): string {
+  getCultureShort(culture: number, R?: RandomKit): string {
     if (culture === undefined) {
       ERROR && console.error("Please define a culture");
       return "ERROR";
     }
-    return this.getBaseShort(pack.cultures[culture].base);
+    return this.getBaseShort(pack.cultures[culture].base, R);
   }
 
   // generate short name for base
-  getBaseShort(base: number): string {
+  getBaseShort(base: number, R?: RandomKit): string {
     const min = this.nameBases[base] ? this.nameBases[base].min - 1 : undefined;
     const max = min ? Math.max(this.nameBases[base].max - 2, min) : undefined;
-    return this.getBase(base, min, max, "");
+    return this.getBase(base, min, max, "", R);
   }
 
   private validateSuffix(name: string, suffix: string): string {
@@ -185,15 +199,15 @@ class NamesGenerator {
     return name + suffix;
   }
 
-  private addSuffix(name: string): string {
-    const suffix = P(0.8) ? "ia" : "land";
+  private addSuffix(name: string, R?: RandomKit): string {
+    const suffix = this.roll(R, 0.8) ? "ia" : "land";
     if (suffix === "ia" && name.length > 6) name = name.slice(0, -(name.length - 3));
     else if (suffix === "land" && name.length > 6) name = name.slice(0, -(name.length - 5));
     return this.validateSuffix(name, suffix);
   }
 
   // generate state name based on capital or random name and culture-specific suffix
-  getState(name: string, culture: number, base?: number): string {
+  getState(name: string, culture: number, base?: number, R?: RandomKit): string {
     if (name === undefined) {
       ERROR && console.error("Please define a base name");
       return "ERROR";
@@ -213,7 +227,7 @@ class NamesGenerator {
     // remove -sk/-ev/-ov for Ruthenian
     else if (base === 12) return isVowel(name.slice(-1)) ? name : `${name}u`;
     // Japanese ends on any vowel or -u
-    else if (base === 18 && P(0.4))
+    else if (base === 18 && this.roll(R, 0.4))
       name = isVowel(name.slice(0, 1).toLowerCase()) ? `Al${name.toLowerCase()}` : `Al ${name}`; // Arabic starts with -Al
 
     // no suffix for fantasy bases
@@ -221,17 +235,17 @@ class NamesGenerator {
 
     // define if suffix should be used
     if (name.length > 3 && isVowel(name.slice(-1))) {
-      if (isVowel(name.slice(-2, -1)) && P(0.85)) name = name.slice(0, -2);
+      if (isVowel(name.slice(-2, -1)) && this.roll(R, 0.85)) name = name.slice(0, -2);
       // 85% for vv
-      else if (P(0.7)) name = name.slice(0, -1);
+      else if (this.roll(R, 0.7)) name = name.slice(0, -1);
       // ~60% for cv
       else return name;
-    } else if (P(0.4)) return name; // 60% for cc and vc
+    } else if (this.roll(R, 0.4)) return name; // 60% for cc and vc
 
     // define suffix
     let suffix = "ia"; // standard suffix
 
-    const rnd = Math.random(),
+    const rnd = R ? R.next() : rand(),
       l = name.length;
     if (base === 3 && rnd < 0.03 && l < 7) suffix = "terra";
     // Italian
@@ -271,16 +285,16 @@ class NamesGenerator {
   }
 
   // generate name for the map
-  getMapName(): string {
-    const base = P(0.7) ? 2 : P(0.5) ? rand(0, 6) : rand(0, 31);
+  getMapName(R?: RandomKit): string {
+    const base = this.roll(R, 0.7) ? 2 : this.roll(R, 0.5) ? this.rollInt(R, 0, 6) : this.rollInt(R, 0, 31);
     if (!this.nameBases[base]) {
       tip("Namebase is not found", false, "error");
       return "";
     }
     const min = this.nameBases[base].min - 1;
     const max = Math.max(this.nameBases[base].max - 3, min);
-    const baseName = this.getBase(base, min, max, "") as string;
-    const name = P(0.7) ? this.addSuffix(baseName) : baseName;
+    const baseName = this.getBase(base, min, max, "", R) as string;
+    const name = this.roll(R, 0.7) ? this.addSuffix(baseName, R) : baseName;
     return name;
   }
 
@@ -289,8 +303,8 @@ class NamesGenerator {
   }
 
   /** The calendar era: a name base plus "Era", weighted to the base most eras are built on */
-  getEra(): string {
-    return `${this.getBaseShort(P(0.7) ? 1 : rand(this.nameBases.length))} Era`;
+  getEra(R?: RandomKit): string {
+    return `${this.getBaseShort(this.roll(R, 0.7) ? 1 : this.rollInt(R, this.nameBases.length), R)} Era`;
   }
 
   /** The abbreviation an era name suggests, which the user may override */

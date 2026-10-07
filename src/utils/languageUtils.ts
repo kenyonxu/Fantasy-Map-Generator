@@ -1,5 +1,4 @@
 import { last } from "./arrayUtils";
-import { P } from "./probabilityUtils";
 
 /**
  * Check if character is a vowel
@@ -29,7 +28,10 @@ export const trimVowels = (string: string, minLength: number = 3) => {
  * @param noun - The noun to be converted to an adjective.
  * @returns The adjective form of the noun.
  */
-export const getAdjective = (nounToBeAdjective: string) => {
+/** The random source fractional adjectivization rules draw from; seed-bound kits pass their own */
+type RandomSource = () => number;
+
+export const getAdjective = (nounToBeAdjective: string, next: RandomSource = Math.random) => {
   const adjectivizationRules = [
     {
       name: "guo",
@@ -161,7 +163,9 @@ export const getAdjective = (nounToBeAdjective: string) => {
     }
   ];
   for (const rule of adjectivizationRules) {
-    if (P(rule.probability) && rule.condition.test(nounToBeAdjective)) {
+    // P semantics: unit probability always passes without a draw
+    const passes = rule.probability >= 1 ? true : rule.probability <= 0 ? false : next() < rule.probability;
+    if (passes && rule.condition.test(nounToBeAdjective)) {
       return rule.action(nounToBeAdjective);
     }
   }

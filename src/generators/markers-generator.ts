@@ -44,12 +44,12 @@ import {
 import { Notes } from "@/generators/notes";
 import type { PackedGraph } from "@/types/PackedGraph";
 import { requireColor } from "@/utils/colorUtils";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireName, requireOneOf } from "@/utils/validationUtils";
 import {
   capitalize,
   convertTemperature,
   gauss,
-  generateDate,
   getAdjective,
   getFriendlyHeight,
   last,
@@ -110,7 +110,7 @@ type MarkerConfig = {
   each: number;
   multiplier: number;
   list: (pack: PackedGraph) => number[];
-  add: (marker: Marker, cell: number) => void;
+  add: (marker: Marker, cell: number, R?: RandomKit) => void;
 };
 
 export type MarkerDetails = { name?: string; note?: string; icon?: string };
@@ -125,6 +125,22 @@ const requireNumber = (min: number, max: number) => (value: unknown) => {
     throw new Error(`Expected a number from ${min} to ${max}`);
   return value;
 };
+
+// without a kit, direct callers (the marker editor) draw the ambient global stream
+const roll = (R: RandomKit | undefined, probability: number): boolean => (R ? R.P(probability) : P(probability));
+const pick = <T>(R: RandomKit | undefined, array: ArrayLike<T>): T => (R ? R.ra(array) : ra(array));
+const pickWeighted = (R: RandomKit | undefined, object: Record<string, number>): string =>
+  R ? R.rw(object) : rw(object);
+const rollInt = (R: RandomKit | undefined, min?: number, max?: number): number =>
+  R ? R.rand(min, max) : rand(min, max);
+const rollGauss = (
+  R: RandomKit | undefined,
+  expected?: number,
+  deviation?: number,
+  min?: number,
+  max?: number,
+  round?: number
+): number => (R ? R.gauss(expected, deviation, min, max, round) : gauss(expected, deviation, min, max, round));
 
 const APPEARANCE: Record<keyof MarkerAppearance, (value: unknown) => unknown> = {
   size: requireNumber(1, 500),
@@ -162,19 +178,21 @@ class MarkersModule {
   }
 
   generate() {
+    const R = makeRandom(options.map.seed);
     this.resetConfig();
     pack.markers = [];
-    this.generateTypes();
+    this.generateTypes(R);
   }
 
   regenerate() {
+    const R = makeRandom(options.map.seed);
     pack.markers = pack.markers.filter(({ lock, cell }) => {
       if (!lock) return false;
       this.occupied[cell] = true;
       return true;
     });
 
-    this.generateTypes();
+    this.generateTypes(R);
   }
 
   add(marker: Marker) {
@@ -671,7 +689,7 @@ class MarkersModule {
     this.config = this.getDefaultConfig();
   }
 
-  private generateTypes() {
+  private generateTypes(R: RandomKit) {
     this.config.forEach(({ type, icon, dx, dy, px, size, pin, fill, stroke, min, each, multiplier, list, add }) => {
       if (multiplier === 0) return;
 
@@ -681,10 +699,10 @@ class MarkersModule {
       // console.info(`${icon} ${type}: each ${each} of ${candidates.length}, min ${min} candidates. Got ${quantity}`);
 
       while (quantity && candidates.length) {
-        const [cell] = this.extractAnyElement(candidates);
+        const [cell] = this.extractAnyElement(candidates, R);
         const marker = this.addMarker({ icon, type, dx, dy, px, size, pin, fill, stroke }, { cell });
         if (!marker) continue;
-        add(marker, cell);
+        add(marker, cell, R);
         quantity--;
       }
     });
@@ -698,8 +716,8 @@ class MarkersModule {
     return array.length < requestQty ? array.length : requestQty;
   }
 
-  private extractAnyElement(array: any[]) {
-    const index = Math.floor(Math.random() * array.length);
+  private extractAnyElement(array: any[], R?: RandomKit) {
+    const index = Math.floor((R ? R.next() : rand()) * array.length);
     return array.splice(index, 1);
   }
 
@@ -730,12 +748,12 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.h[i] >= 70);
   }
 
-  private addVolcano(marker: Marker, cell: number) {
+  private addVolcano(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
-    const proper = Names.getCulture(cells.culture[cell]);
-    const name = P(0.3) ? `Mount ${proper}` : P(0.7) ? `${proper} Volcano` : proper;
-    const status = P(0.6) ? "Dormant" : P(0.4) ? "Active" : "Erupting";
+    const proper = Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R);
+    const name = roll(R, 0.3) ? `Mount ${proper}` : roll(R, 0.7) ? `${proper} Volcano` : proper;
+    const status = roll(R, 0.6) ? "Dormant" : roll(R, 0.4) ? "Active" : "Erupting";
     marker.name = name;
     marker.note = `${status} volcano. Height: ${getFriendlyHeight(cells.p[cell], pack, grid)}.`;
   }
@@ -744,12 +762,12 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.h[i] > 50 && cells.culture[i]);
   }
 
-  private addHotSpring(marker: Marker, cell: number) {
+  private addHotSpring(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
-    const proper = Names.getCulture(cells.culture[cell]);
-    const temp = convertTemperature(gauss(35, 15, 20, 100));
-    const name = P(0.3) ? `Hot Springs of ${proper}` : P(0.7) ? `${proper} Hot Springs` : proper;
+    const proper = Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R);
+    const temp = convertTemperature(rollGauss(R, 35, 15, 20, 100));
+    const name = roll(R, 0.3) ? `Hot Springs of ${proper}` : roll(R, 0.7) ? `${proper} Hot Springs` : proper;
     const legend = `A geothermal springs with naturally heated water that provide relaxation and medicinal benefits. Average temperature is ${temp}.`;
 
     marker.name = name;
@@ -760,12 +778,12 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.h[i] > 30 && cells.r[i]);
   }
 
-  private addWaterSource(marker: Marker, cell: number) {
+  private addWaterSource(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
-    const type = rw(WATER_SOURCE_TYPES);
+    const type = pickWeighted(R, WATER_SOURCE_TYPES);
 
-    const proper = Names.getCulture(cells.culture[cell]);
+    const proper = Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R);
     const name = `${proper} ${type}`;
     const legend =
       "This legendary water source is whispered about in ancient tales and believed to possess mystical properties. The spring emanates crystal-clear water, shimmering with an otherworldly iridescence that sparkles even in the dimmest light.";
@@ -832,16 +850,16 @@ class MarkersModule {
     );
   }
 
-  private addBridge(marker: Marker, cell: number) {
+  private addBridge(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
     const burg = pack.burgs[cells.burg[cell]];
     const river = pack.rivers.find(r => r.i === pack.cells.r[cell]);
     const riverName = river ? `${river.name} ${river.type}` : "river";
-    const name = river && P(0.2) ? `${river.name} Bridge` : `${burg.name} Bridge`;
-    const legend = P(0.7)
-      ? `A ${rw(BRIDGE_ADJECTIVES)} bridge spans over the ${riverName} near ${burg.name}.`
-      : `An old crossing of the ${riverName}, rarely used since ${ra(BRIDGE_DECLINE_REASONS)}.`;
+    const name = river && roll(R, 0.2) ? `${river.name} Bridge` : `${burg.name} Bridge`;
+    const legend = roll(R, 0.7)
+      ? `A ${pickWeighted(R, BRIDGE_ADJECTIVES)} bridge spans over the ${riverName} near ${burg.name}.`
+      : `An old crossing of the ${riverName}, rarely used since ${pick(R, BRIDGE_DECLINE_REASONS)}.`;
 
     marker.name = name;
     marker.note = legend;
@@ -851,29 +869,29 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.pop[i] > 5 && Routes.isCrossroad(i));
   }
 
-  private addInn(marker: Marker, cell: number) {
-    const typeName = P(0.3) ? "inn" : "tavern";
-    const isAnimalThemed = P(0.7);
-    const animal = ra(INN_ANIMALS);
+  private addInn(marker: Marker, cell: number, R?: RandomKit) {
+    const typeName = roll(R, 0.3) ? "inn" : "tavern";
+    const isAnimalThemed = roll(R, 0.7);
+    const animal = pick(R, INN_ANIMALS);
     const name = isAnimalThemed
-      ? P(0.6)
-        ? `${ra(INN_COLORS)} ${animal}`
-        : `${ra(INN_ADJECTIVES)} ${animal}`
-      : `${ra(INN_ADJECTIVES)} ${capitalize(typeName)}`;
+      ? roll(R, 0.6)
+        ? `${pick(R, INN_COLORS)} ${animal}`
+        : `${pick(R, INN_ADJECTIVES)} ${animal}`
+      : `${pick(R, INN_ADJECTIVES)} ${capitalize(typeName)}`;
     const local = this.getMarketGoods(cell);
     const localFare = (byGood: Record<string, string[]>) =>
       Object.entries(byGood).flatMap(([good, fare]) => (local.has(good) ? fare : []));
-    const pick = (localItems: string[], common: string[]) =>
-      localItems.length && P(0.7) ? ra(localItems) : ra(common);
+    const pickFare = (localItems: string[], common: string[]) =>
+      localItems.length && roll(R, 0.7) ? pick(R, localItems) : pick(R, common);
 
     const isWarm = grid.cells.temp[pack.cells.g[cell]] >= 18;
     const courses = isWarm ? [...INN_COMMON_COURSES, ...INN_WARM_COURSES] : INN_COMMON_COURSES;
     const localCourses = localFare(INN_COURSES_BY_GOOD);
     const isAnimalServed = [...courses, ...localCourses].includes(animal.toLowerCase());
-    const meal = isAnimalThemed && isAnimalServed && P(0.5) ? animal : pick(localCourses, courses);
-    const course = `${ra(INN_COOKING_METHODS)} ${meal}`.toLowerCase();
+    const meal = isAnimalThemed && isAnimalServed && roll(R, 0.5) ? animal : pickFare(localCourses, courses);
+    const course = `${pick(R, INN_COOKING_METHODS)} ${meal}`.toLowerCase();
     const drink =
-      `${P(0.5) ? ra(INN_DRINK_KINDS) : ra(INN_COLORS)} ${pick(localFare(INN_DRINKS_BY_GOOD), INN_COMMON_DRINKS)}`.toLowerCase();
+      `${roll(R, 0.5) ? pick(R, INN_DRINK_KINDS) : pick(R, INN_COLORS)} ${pickFare(localFare(INN_DRINKS_BY_GOOD), INN_COMMON_DRINKS)}`.toLowerCase();
     const legend = `A big and famous roadside ${typeName}. Delicious ${course} with ${drink} is served here.`;
     marker.name = `The ${name}`;
     marker.note = legend;
@@ -885,11 +903,13 @@ class MarkersModule {
     );
   }
 
-  private addLighthouse(marker: Marker, cell: number) {
+  private addLighthouse(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
-    const proper = cells.burg[cell] ? pack.burgs[cells.burg[cell]].name! : Names.getCulture(cells.culture[cell]);
-    marker.name = `${getAdjective(proper)} Lighthouse`;
+    const proper = cells.burg[cell]
+      ? pack.burgs[cells.burg[cell]].name!
+      : Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R);
+    marker.name = `${getAdjective(proper, R?.next)} Lighthouse`;
     marker.note = `A lighthouse to serve as a beacon for ships in the open sea.`;
   }
 
@@ -899,12 +919,23 @@ class MarkersModule {
     );
   }
 
-  private addWaterfall(marker: Marker, cell: number) {
+  private addWaterfall(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
-    const proper = cells.burg[cell] ? pack.burgs[cells.burg[cell]].name! : Names.getCulture(cells.culture[cell]);
-    marker.name = `${getAdjective(proper)} Waterfall`;
-    marker.note = ra(WATERFALL_DESCRIPTIONS);
+    const proper = cells.burg[cell]
+      ? pack.burgs[cells.burg[cell]].name!
+      : Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R);
+    marker.name = `${getAdjective(proper, R?.next)} Waterfall`;
+    marker.note = pick(R, WATERFALL_DESCRIPTIONS);
+  }
+
+  // generateDate over the passed stream (the utils one draws the ambient global)
+  private rollDate(R: RandomKit | undefined, from: number = 100, to: number = 1000): string {
+    return new Date(rollInt(R, from, to), rollInt(R, 11), rollInt(R, 1, 28)).toLocaleDateString("en", {
+      year: "numeric",
+      month: "long",
+      day: "numeric"
+    });
   }
 
   private listBattlefields({ cells }: PackedGraph) {
@@ -913,14 +944,14 @@ class MarkersModule {
     );
   }
 
-  private addBattlefield(marker: Marker, cell: number) {
+  private addBattlefield(marker: Marker, cell: number, R?: RandomKit) {
     const { cells, states } = pack;
 
     const state = states[cells.state[cell]];
-    if (!state.campaigns) state.campaigns = States.generateCampaign(state);
-    const campaign = ra(state.campaigns);
-    const date = generateDate(campaign.start, campaign.end);
-    const name = `${Names.getCulture(cells.culture[cell])} Battlefield`;
+    if (!state.campaigns) state.campaigns = States.generateCampaign(state, R);
+    const campaign = pick(R, state.campaigns);
+    const date = this.rollDate(R, campaign.start, campaign.end);
+    const name = `${Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R)} Battlefield`;
     const legend = `A historical battle of the ${campaign.name}. \r\nDate: ${date} ${options.map.lore.calendar.era}.`;
     marker.name = name;
     marker.note = legend;
@@ -946,7 +977,7 @@ class MarkersModule {
       .map(feature => feature.firstCell);
   }
 
-  private addLakeMonster(marker: Marker, cell: number) {
+  private addLakeMonster(marker: Marker, cell: number, R?: RandomKit) {
     const lake = pack.features[pack.cells.f[cell]];
 
     // Check that the feature is a lake in case the user clicked on a wrong
@@ -954,8 +985,8 @@ class MarkersModule {
     if (lake.type !== "lake") return;
 
     const name = `${lake.name} Monster`;
-    const length = gauss(10, 5, 5, 100);
-    const legend = `${ra(RUMOR_SOURCES)} say a relic monster of ${length} ${options.map.units.height.unit} long inhabits ${
+    const length = rollGauss(R, 10, 5, 5, 100);
+    const legend = `${pick(R, RUMOR_SOURCES)} say a relic monster of ${length} ${options.map.units.height.unit} long inhabits ${
       lake.name
     } Lake. Truth or lie, folks are afraid to fish in the lake.`;
     marker.name = name;
@@ -968,9 +999,9 @@ class MarkersModule {
     );
   }
 
-  private addSeaMonster(marker: Marker, _cell: number) {
-    const name = `${Names.getCultureShort(0)} Monster`;
-    const length = gauss(25, 10, 10, 100);
+  private addSeaMonster(marker: Marker, _cell: number, R?: RandomKit) {
+    const name = `${Names.getCultureShort(0, R)} Monster`;
+    const length = rollGauss(R, 25, 10, 10, 100);
     const legend = `Old sailors tell stories of a gigantic sea monster inhabiting these dangerous waters. Rumors say it can be ${length} ${options.map.units.height.unit} long.`;
     marker.name = name;
     marker.note = legend;
@@ -980,13 +1011,14 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.h[i] >= 50 && cells.pop[i]);
   }
 
-  private addHillMonster(marker: Marker, cell: number) {
+  private addHillMonster(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
-    const monster = ra(HILL_MONSTER_SPECIES);
-    const toponym = Names.getCulture(cells.culture[cell]);
+    const monster = pick(R, HILL_MONSTER_SPECIES);
+    const toponym = Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R);
     const name = `${toponym} ${monster}`;
-    const legend = `${ra(RUMOR_SOURCES)} speak of a ${ra(HILL_MONSTER_ADJECTIVES)} ${monster} who inhabits ${toponym} hills and ${ra(
+    const legend = `${pick(R, RUMOR_SOURCES)} speak of a ${pick(R, HILL_MONSTER_ADJECTIVES)} ${monster} who inhabits ${toponym} hills and ${pick(
+      R,
       HILL_MONSTER_HABITS
     )}.`;
     marker.name = name;
@@ -1004,12 +1036,12 @@ class MarkersModule {
     );
   }
 
-  private addSacredMountain(marker: Marker, cell: number) {
+  private addSacredMountain(marker: Marker, cell: number, R?: RandomKit) {
     const { cells, religions } = pack;
 
     const culture = cells.c[cell].map(c => cells.culture[c]).find(c => c)!;
     const religion = cells.religion[cell] || cells.c[cell].map(c => cells.religion[c]).find(r => r);
-    const name = `${Names.getCulture(culture)} Mountain`;
+    const name = `${Names.getCulture(culture, undefined, undefined, undefined, R)} Mountain`;
     const height = getFriendlyHeight(cells.p[cell], pack, grid);
     const sacredTo = religion ? ` of ${religions[religion].name}` : "";
     const legend = `A sacred mountain${sacredTo}. Height: ${height}.`;
@@ -1024,12 +1056,12 @@ class MarkersModule {
     );
   }
 
-  private addSacredForest(marker: Marker, cell: number) {
+  private addSacredForest(marker: Marker, cell: number, R?: RandomKit) {
     const { cells, religions } = pack;
 
     const culture = cells.culture[cell];
     const religion = cells.religion[cell];
-    const name = `${Names.getCulture(culture)} Forest`;
+    const name = `${Names.getCulture(culture, undefined, undefined, undefined, R)} Forest`;
     const legend = `A forest sacred to local ${religions[religion].name}.`;
     marker.name = name;
     marker.note = legend;
@@ -1040,12 +1072,12 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.culture[i] && cells.religion[i] && cells.biome[i] === 9);
   }
 
-  private addSacredPinery(marker: Marker, cell: number) {
+  private addSacredPinery(marker: Marker, cell: number, R?: RandomKit) {
     const { cells, religions } = pack;
 
     const culture = cells.culture[cell];
     const religion = cells.religion[cell];
-    const name = `${Names.getCulture(culture)} Pinery`;
+    const name = `${Names.getCulture(culture, undefined, undefined, undefined, R)} Pinery`;
     const legend = `A pinery sacred to local ${religions[religion].name}.`;
     marker.name = name;
     marker.note = legend;
@@ -1064,12 +1096,12 @@ class MarkersModule {
     );
   }
 
-  private addSacredPalmGrove(marker: Marker, cell: number) {
+  private addSacredPalmGrove(marker: Marker, cell: number, R?: RandomKit) {
     const { cells, religions } = pack;
 
     const culture = cells.culture[cell];
     const religion = cells.religion[cell];
-    const name = `${Names.getCulture(culture)} Palm Grove`;
+    const name = `${Names.getCulture(culture, undefined, undefined, undefined, R)} Palm Grove`;
     const legend = `A palm grove sacred to local ${religions[religion].name}.`;
     marker.name = name;
     marker.note = legend;
@@ -1079,7 +1111,7 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.culture[i] && Routes.hasRoad(i));
   }
 
-  private addBrigands(marker: Marker, cell: number) {
+  private addBrigands(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
     const culture = cells.culture[cell];
@@ -1095,8 +1127,8 @@ class MarkersModule {
       return "angry";
     })(height, biome);
 
-    const name = `${Names.getCulture(culture)} ${ra(BRIGAND_ANIMALS)}`;
-    const legend = `A gang of ${locality} ${rw(BRIGAND_TYPES)}.`;
+    const name = `${Names.getCulture(culture, undefined, undefined, undefined, R)} ${pick(R, BRIGAND_ANIMALS)}`;
+    const legend = `A gang of ${locality} ${pickWeighted(R, BRIGAND_TYPES)}.`;
     marker.name = name;
     marker.note = legend;
   }
@@ -1117,17 +1149,17 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.h[i] >= 20 && cells.h[i] < 40);
   }
 
-  private addStatue(marker: Marker, cell: number) {
+  private addStatue(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
     const culture = cells.culture[cell];
 
-    const variant = ra(STATUE_VARIANTS);
-    const name = `${Names.getCulture(culture)} ${variant}`;
-    const script = STATUE_SCRIPTS[ra(Object.keys(STATUE_SCRIPTS)) as keyof typeof STATUE_SCRIPTS] as string;
-    const inscription = Array(rand(40, 100))
+    const variant = pick(R, STATUE_VARIANTS);
+    const name = `${Names.getCulture(culture, undefined, undefined, undefined, R)} ${variant}`;
+    const script = STATUE_SCRIPTS[pick(R, Object.keys(STATUE_SCRIPTS)) as keyof typeof STATUE_SCRIPTS] as string;
+    const inscription = Array(rollInt(R, 40, 100))
       .fill(null)
-      .map(() => ra(script.split("")))
+      .map(() => pick(R, script.split("")))
       .join("");
     const legend = `An ancient ${variant.toLowerCase()}. It has an inscription, but no one can translate it:
         <div style="font-size: 1.8em; line-break: anywhere;">${inscription}</div>`;
@@ -1139,8 +1171,8 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.culture[i] && cells.h[i] >= 20 && cells.h[i] < 60);
   }
 
-  private addRuins(marker: Marker, _cell: number) {
-    const ruinType = ra(RUIN_TYPES);
+  private addRuins(marker: Marker, _cell: number, R?: RandomKit) {
+    const ruinType = pick(R, RUIN_TYPES);
     const name = `Ruined ${ruinType}`;
     const legend = `Ruins of an ancient ${ruinType.toLowerCase()}. Untold riches may lie within.`;
     marker.name = name;
@@ -1151,11 +1183,11 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.culture[i] && cells.burg[i] && cells.pop[i] > 10);
   }
 
-  private addLibrary(marker: Marker, cell: number) {
+  private addLibrary(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
-    const type = rw(LIBRARY_TYPES);
-    const name = `${Names.getCulture(cells.culture[cell])} ${type}`;
+    const type = pickWeighted(R, LIBRARY_TYPES);
+    const name = `${Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R)} ${type}`;
     const legend = "A vast collection of knowledge, including many rare and ancient tomes.";
 
     marker.name = name;
@@ -1166,8 +1198,8 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.culture[i] && cells.h[i] >= 20 && Routes.isConnected(i));
   }
 
-  private addCircus(marker: Marker, _cell: number) {
-    const adjective = ra(CIRCUS_ADJECTIVES);
+  private addCircus(marker: Marker, _cell: number, R?: RandomKit) {
+    const adjective = pick(R, CIRCUS_ADJECTIVES);
     const name = `Travelling ${adjective} Circus`;
     const legend = `Roll up, roll up, this ${adjective.toLowerCase()} circus is here for a limited time only.`;
     marker.name = name;
@@ -1178,13 +1210,13 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.burg[i] && burgs[cells.burg[i]].population! > 20);
   }
 
-  private addJoust(marker: Marker, cell: number) {
+  private addJoust(marker: Marker, cell: number, R?: RandomKit) {
     const { cells, burgs } = pack;
 
     if (!cells.burg[cell]) return;
     const burgName = burgs[cells.burg[cell]].name;
-    const type = ra(JOUST_TYPES);
-    const virtue = ra(JOUST_VIRTUES);
+    const type = pick(R, JOUST_TYPES);
+    const virtue = pick(R, JOUST_VIRTUES);
 
     const name = `${burgName} ${type}`;
     const legend = `Warriors from around the land gather for a ${type.toLowerCase()} of ${virtue} in ${burgName}, with fame, fortune and favour on offer to the victor.`;
@@ -1246,8 +1278,8 @@ class MarkersModule {
     );
   }
 
-  private addMigration(marker: Marker, cell: number) {
-    const animalChoice = ra(MIGRATING_ANIMALS[pack.cells.biome[cell]] ?? ["Birds"]);
+  private addMigration(marker: Marker, cell: number, R?: RandomKit) {
+    const animalChoice = pick(R, MIGRATING_ANIMALS[pack.cells.biome[cell]] ?? ["Birds"]);
 
     const name = `${animalChoice} migration`;
     const legend = `A huge group of ${animalChoice.toLowerCase()} are migrating, whether part of their annual routine, or something more extraordinary.`;
@@ -1259,13 +1291,14 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.burg[i] && burgs[cells.burg[i]].population! > 15);
   }
 
-  private addDances(marker: Marker, cell: number) {
+  private addDances(marker: Marker, cell: number, R?: RandomKit) {
     const { cells, burgs } = pack;
     const burgName = burgs[cells.burg[cell]].name;
-    const socialType = ra(DANCE_TYPES);
+    const socialType = pick(R, DANCE_TYPES);
 
     const name = `${burgName} ${socialType}`;
-    const legend = `A ${socialType} has been organised at ${burgName} as a chance to gather the ${ra(
+    const legend = `A ${socialType} has been organised at ${burgName} as a chance to gather the ${pick(
+      R,
       DANCE_GUESTS
     )} of the area together to be merry, make alliances and scheme around the crisis.`;
     marker.name = name;
@@ -1276,8 +1309,8 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.biome[i] === 1);
   }
 
-  private addMirage(marker: Marker, _cell: number) {
-    const mirageAdjective = ra(MIRAGE_ADJECTIVES);
+  private addMirage(marker: Marker, _cell: number, R?: RandomKit) {
+    const mirageAdjective = pick(R, MIRAGE_ADJECTIVES);
     const name = `${mirageAdjective} mirage`;
     const legend = `This ${mirageAdjective.toLowerCase()} mirage has been luring travellers out of their way for eons.`;
     marker.name = name;
@@ -1288,16 +1321,16 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.h[i] >= 50 && cells.pop[i]);
   }
 
-  private addCave(marker: Marker, cell: number) {
+  private addCave(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
-    let formation = rw(CAVE_FORMATIONS);
-    const toponym = Names.getCulture(cells.culture[cell]);
+    let formation = pickWeighted(R, CAVE_FORMATIONS);
+    const toponym = Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R);
     if (cells.biome[cell] === 11) {
       formation = `Glacial ${formation}`;
     }
     const name = `${toponym} ${formation}`;
-    const legend = `The ${name}. Locals claim that it is ${rw(CAVE_STATUSES)}.`;
+    const legend = `The ${name}. Locals claim that it is ${pickWeighted(R, CAVE_STATUSES)}.`;
     marker.name = name;
     marker.note = legend;
   }
@@ -1325,10 +1358,10 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.pop[i] <= 3 && pack.biomes[cells.biome[i]].habitability);
   }
 
-  private addRift(marker: Marker, _cell: number) {
-    const riftType = ra(RIFT_TYPES);
+  private addRift(marker: Marker, _cell: number, R?: RandomKit) {
+    const riftType = pick(R, RIFT_TYPES);
     const name = `${riftType} Rift`;
-    const legend = `A rumoured ${riftType.toLowerCase()} rift in this area is causing ${ra(RIFT_EFFECTS)}.`;
+    const legend = `A rumoured ${riftType.toLowerCase()} rift in this area is causing ${pick(R, RIFT_EFFECTS)}.`;
     marker.name = name;
     marker.note = legend;
   }
@@ -1348,14 +1381,14 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.h[i] >= 20 && cells.pop[i] < 2);
   }
 
-  private addNecropolis(marker: Marker, cell: number) {
+  private addNecropolis(marker: Marker, cell: number, R?: RandomKit) {
     const { cells } = pack;
 
-    const toponym = Names.getCulture(cells.culture[cell]);
-    const type = rw(NECROPOLIS_TYPES);
+    const toponym = Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R);
+    const type = pickWeighted(R, NECROPOLIS_TYPES);
 
     const name = `${toponym} ${type}`;
-    const legend = ra(NECROPOLIS_LEGENDS);
+    const legend = pick(R, NECROPOLIS_LEGENDS);
 
     marker.name = name;
     marker.note = legend;
@@ -1365,7 +1398,7 @@ class MarkersModule {
     return cells.i.filter(i => !this.occupied[i] && cells.h[i] >= 20 && cells.pop[i] > 1);
   }
 
-  private addEncounter(marker: Marker, cell: number) {
+  private addEncounter(marker: Marker, cell: number, R?: RandomKit) {
     if (typeof navigator === "undefined" || navigator.onLine !== false) {
       const name = "Random encounter";
       const encounterSeed = cell;
@@ -1376,10 +1409,10 @@ class MarkersModule {
     }
 
     const { cells } = pack;
-    const cultureName = Names.getCulture(cells.culture[cell]);
+    const cultureName = Names.getCulture(cells.culture[cell], undefined, undefined, undefined, R);
     const biomeName = (pack.biomes[cells.biome[cell]]?.name || "wilderness").toLowerCase();
 
-    const { subject, verb } = ra(ENCOUNTER_KINDS);
+    const { subject, verb } = pick(R, ENCOUNTER_KINDS);
 
     const name = `${subject} of ${cultureName}`;
     const legend = `${subject} ${verb} in the ${biomeName} of ${cultureName} lands.`;

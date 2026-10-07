@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Marker } from "./markers-generator";
 
 const NAV_KEY = "navigator";
@@ -134,5 +134,138 @@ describe("MarkersModule migrations", () => {
     expect(["Reindeer", "Musk oxen", "Wolves", "Foxes", "Geese", "Hares", "Owls"]).toContain(
       marker.name.replace(" migration", "")
     );
+  });
+});
+
+// Golden for the PRNG injection: generate() must place the same markers whether its draws come
+// from the ambient stream (pre-migration, seeded here) or the generator's own seed-bound kit
+// (post-migration) - both are Alea over options.map.seed, drawn in the same call order.
+describe("Markers.generate golden (PRNG)", () => {
+  const NAV_KEY = "navigator";
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, NAV_KEY);
+    if (descriptor && !descriptor.configurable) return;
+    delete (globalThis as any)[NAV_KEY];
+  });
+
+  it("reproduces the marker set from a fixed seed", async () => {
+    // the encounter legend is the online iframe, which rolls nothing
+    Object.defineProperty(globalThis, NAV_KEY, {
+      value: { onLine: true },
+      configurable: true,
+      writable: true
+    });
+    const NamesModule = await import("./names-generator"); // real Names: marker names roll from its bases
+    globalThis.Names = NamesModule.Names;
+    await import("./markers-generator");
+
+    const n = 140;
+    const cells = {
+      i: Array.from({ length: n }, (_, i) => i),
+      p: Array.from({ length: n }, (_, i) => [(i % 14) * 250, Math.floor(i / 14) * 350] as [number, number]),
+      h: new Array(n).fill(35),
+      pop: Array.from({ length: n }, (_, i) => (i < 50 ? 1 : i < 110 ? 5 : 0)),
+      biome: new Array(n).fill(5),
+      culture: new Array(n).fill(1),
+      religion: new Array(n).fill(0),
+      state: Array.from({ length: n }, (_, i) => (i >= 50 && i < 110 ? 1 : 0)),
+      burg: (() => {
+        const burg = new Array(n).fill(0);
+        burg[60] = 1;
+        return burg;
+      })(),
+      r: new Array(n).fill(0),
+      fl: new Array(n).fill(0),
+      t: new Array(n).fill(-1),
+      good: new Array(n).fill(0),
+      harbor: new Array(n).fill(0),
+      c: Array.from({ length: n }, (_, i) => [i - 1, i + 1].filter(x => x >= 0 && x < n))
+    };
+    vi.stubGlobal("pack", {
+      cells,
+      cultures: [{ base: 0 }, { base: 1 }],
+      burgs: [0, { i: 1, cell: 60, name: "Va", population: 5 }],
+      states: [
+        { i: 0, name: "Neutrals" },
+        { i: 1, name: "Wessex", campaigns: [{ name: "War of the Twin Rivers", start: 100, end: 200 }] }
+      ],
+      rivers: [],
+      features: [{ i: 0, type: "ocean", cells: 0 }],
+      markers: []
+    });
+    vi.stubGlobal("Routes", { isCrossroad: () => false, isConnected: () => false, hasRoad: () => false });
+    vi.stubGlobal("Goods", { get: () => undefined });
+    vi.stubGlobal("Markets", { get: () => undefined });
+    vi.stubGlobal("grid", { cells: { temp: new Array(n).fill(15) } });
+
+    options = Options.getDefaultOptions();
+    options.map.seed = "markers-gold";
+    options.map.cultures.set = "world";
+    vi.spyOn(Math, "random").mockImplementation((await import("alea")).default("markers-gold") as () => number);
+
+    Markers.generate();
+
+    const summary = ((globalThis.pack as any).markers as any[]).map(({ i, type, cell, name, note }) => ({
+      i,
+      type,
+      cell,
+      name,
+      note
+    }));
+    expect(summary).toEqual([
+      {
+        i: 0,
+        type: "battlefields",
+        cell: 68,
+        name: "Westher Battlefield",
+        note: "A historical battle of the War of the Twin Rivers. \r\nDate: December 14, 166 Era."
+      },
+      {
+        i: 1,
+        type: "dungeons",
+        cell: 24,
+        name: "Dungeon",
+        note: '<div>Undiscovered dungeon. See <a href="https://watabou.github.io/one-page-dungeon/?seed=markers-gold24" target="_blank">One page dungeon</a></div><iframe style="pointer-events: none;" src="https://watabou.github.io/one-page-dungeon/?seed=markers-gold24" sandbox="allow-scripts allow-same-origin"></iframe>'
+      },
+      {
+        i: 2,
+        type: "statues",
+        cell: 48,
+        name: "Bunden Statue",
+        note: 'An ancient statue. It has an inscription, but no one can translate it:\n        <div style="font-size: 1.8em; line-break: anywhere;">\udc12\ud802\udc0d\udc01\ud802\ud802\ud802\ud802\ud802\udc3c\udc0c\udc27\ud802\udc2d\udc27\ud802\udc10\udc31\udc27 \ud802\udc0d\udc2f\ud802\udc0c\udc11\udc21\udc1a\udc1b\ud802\ud802\ud802\udc21\udc18\ud802 \ud802\ud802\udc05\ud802\ud802\ud802</div>'
+      },
+      {
+        i: 3,
+        type: "ruins",
+        cell: 88,
+        name: "Ruined Mausoleum",
+        note: "Ruins of an ancient mausoleum. Untold riches may lie within."
+      },
+      {
+        i: 4,
+        type: "migration",
+        cell: 2,
+        name: "Mantises migration",
+        note: "A huge group of mantises are migrating, whether part of their annual routine, or something more extraordinary."
+      },
+      {
+        i: 5,
+        type: "necropolises",
+        cell: 124,
+        name: "Uxbrid Graveyard",
+        note: "A desolate necropolis where an eerie stillness reigns. Time seems frozen amidst the decaying mausoleums, and the silence is broken only by the whispers of the wind and the rustle of tattered banners."
+      },
+      {
+        i: 6,
+        type: "encounters",
+        cell: 97,
+        name: "Random encounter",
+        note: '<div>You have encountered a character.</div><iframe src="https://deorum.vercel.app/encounter/97" width="375" height="600" sandbox="allow-scripts allow-same-origin allow-popups"></iframe>'
+      },
+      { i: 7, type: "party", cell: 60, name: "The Party", note: "Current location of the adventuring party." }
+    ]);
   });
 });

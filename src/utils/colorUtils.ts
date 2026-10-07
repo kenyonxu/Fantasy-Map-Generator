@@ -54,16 +54,18 @@ export const C_12 = [
 
 export const getCardinalColor = (index: number) => schemeCategory10[index % schemeCategory10.length];
 
+/** The random source color helpers draw from; seed-bound kits pass their own */
+type RandomSource = () => number;
+
 /**
  * Get an array of distinct colors
- * Uses shuffler with current Math.random to ensure seeded randomness works
  * @param {number} count - The count of colors to generate
+ * @param {RandomSource} next - The random source (defaults to the ambient Math.random)
  * @returns {string[]} - The array of HEX color strings
  */
-export const getColors = (count: number): string[] => {
+export const getColors = (count: number, next: RandomSource = Math.random): string[] => {
   const scaleRainbow = scaleSequential(interpolateRainbow);
-  // Use shuffler() to create a shuffle function that uses the current Math.random
-  const shuffle = shuffler(() => Math.random());
+  const shuffle = shuffler(next);
   const colors = shuffle(
     range(count).map(i => (i < 12 ? C_12[i] : color(scaleRainbow((i - 12) / (count - 12)))?.formatHex()))
   );
@@ -72,10 +74,11 @@ export const getColors = (count: number): string[] => {
 
 /**
  * Get a random color in HEX format
+ * @param {RandomSource} next - The random source (defaults to the ambient Math.random)
  * @returns {string} - The HEX color string
  */
-export const getRandomColor = (): string => {
-  const colorFromRainbow: RGBColor = color(scaleSequential(interpolateRainbow)(Math.random())) as RGBColor;
+export const getRandomColor = (next: RandomSource = Math.random): string => {
+  const colorFromRainbow: RGBColor = color(scaleSequential(interpolateRainbow)(next())) as RGBColor;
   return colorFromRainbow.formatHex();
 };
 
@@ -84,11 +87,17 @@ export const getRandomColor = (): string => {
  * @param {string} color - The base color in HEX format
  * @param {number} mix - The mix ratio (0 to 1)
  * @param {number} bright - The brightness adjustment
+ * @param {RandomSource} next - The random source (defaults to the ambient Math.random)
  * @returns {string} - The mixed HEX color string
  */
-export const getMixedColor = (colorToMix: string, mix = 0.2, bright = 0.3): string => {
-  const c = colorToMix && colorToMix[0] === "#" ? colorToMix : getRandomColor(); // if provided color is not hex (e.g. harching), generate random one
-  const mixedColor: RGBColor = color(interpolate(c, getRandomColor())(mix)) as RGBColor;
+export const getMixedColor = (
+  colorToMix: string,
+  mix = 0.2,
+  bright = 0.3,
+  next: RandomSource = Math.random
+): string => {
+  const c = colorToMix && colorToMix[0] === "#" ? colorToMix : getRandomColor(next); // if provided color is not hex (e.g. harching), generate random one
+  const mixedColor: RGBColor = color(interpolate(c, getRandomColor(next))(mix)) as RGBColor;
   return mixedColor.brighter(bright).formatHex();
 };
 

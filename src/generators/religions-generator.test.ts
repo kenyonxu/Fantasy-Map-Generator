@@ -550,3 +550,191 @@ describe("Religions.recalculate golden", () => {
     expect([...globalThis.pack.cells.religion]).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3, 3, 3, 4, 4, 4, 4, 4, 4]);
   });
 });
+
+// Golden for the PRNG injection: generate() must produce the same religions whether its draws
+// come from the ambient stream (pre-migration, seeded here) or the generator's own seed-bound
+// kit (post-migration) - both are Alea over options.map.seed, drawn in the same call order.
+describe("Religions.generate golden (PRNG)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("reproduces folk, organized and heresy religions from a fixed seed", async () => {
+    const NamesModule = await import("./names-generator"); // real Names: religion names roll from its bases
+    globalThis.Names = NamesModule.Names;
+    await import("./religions-generator");
+    // @ts-expect-error vendored UMD script without TypeScript declarations
+    (globalThis as any).FlatQueue = (await import("../../public/libs/flatqueue.js")).default;
+    const Alea = (await import("alea")).default;
+
+    const n = 30;
+    const cells = {
+      i: Array.from({ length: n }, (_, i) => i),
+      c: Array.from({ length: n }, (_, i) => [i - 1, i + 1].filter(x => x >= 0 && x < n)),
+      p: Array.from({ length: n }, (_, i) => [(i % 6) * 250, Math.floor(i / 6) * 350] as [number, number]),
+      religion: new Uint16Array(n),
+      state: Uint16Array.from(Array.from({ length: n }, (_, i) => (i < 15 ? 1 : 2))),
+      culture: Uint16Array.from(Array.from({ length: n }, (_, i) => (i < 15 ? 1 : 2))),
+      biome: new Array(n).fill(5),
+      h: new Array(n).fill(35),
+      s: Array.from({ length: n }, (_, i) => ((i * 7) % 13) + 3),
+      burg: (() => {
+        const burg = new Array(n).fill(0);
+        burg[3] = 1;
+        burg[8] = 2;
+        burg[13] = 3;
+        burg[20] = 4;
+        burg[26] = 5;
+        return burg;
+      })(),
+      routes: new Array(n).fill(null),
+      f: new Array(n).fill(0)
+    };
+    vi.stubGlobal("pack", {
+      cells,
+      biomes: [
+        { i: 0, cost: 0 },
+        { i: 1, cost: 10 },
+        { i: 2, cost: 20 },
+        { i: 3, cost: 30 },
+        { i: 4, cost: 40 },
+        { i: 5, cost: 50 }
+      ],
+      features: [{ i: 0, type: "ocean", cells: 0 }],
+      cultures: [
+        { i: 0, name: "Wildlands", color: "#aaaaaa", center: 0, base: 0 },
+        { i: 1, name: "Luari", color: "#d5b8ed", center: 3, base: 1 },
+        { i: 2, name: "Norse", color: "#8dd3c7", center: 20, base: 5 }
+      ],
+      burgs: [
+        0,
+        { i: 1, cell: 3, population: 42, name: "Va" },
+        { i: 2, cell: 8, population: 35, name: "Kol" },
+        { i: 3, cell: 13, population: 28, name: "Rav" },
+        { i: 4, cell: 20, population: 21, name: "Ost" },
+        { i: 5, cell: 26, population: 14, name: "Dol" }
+      ],
+      states: [
+        { i: 0, name: "Neutrals" },
+        { i: 1, name: "Wessex" },
+        { i: 2, name: "Easland" }
+      ],
+      routes: [],
+      religions: []
+    });
+
+    options = Options.getDefaultOptions();
+    options.map.seed = "religions-gold";
+    options.generation.religions.limit = 4;
+    vi.spyOn(Math, "random").mockImplementation(Alea("religions-gold") as () => number);
+
+    Religions.generate();
+
+    const pack = globalThis.pack as any;
+    const summary = pack.religions.map((r: any) => ({
+      i: r.i,
+      name: r.name,
+      type: r.type,
+      form: r.form,
+      culture: r.culture,
+      center: r.center,
+      expansion: r.expansion,
+      expansionism: r.expansionism,
+      color: r.color,
+      code: r.code,
+      deity: r.deity,
+      origins: r.origins
+    }));
+    expect(summary).toEqual([
+      { i: 0, name: "No religion", origins: null },
+      {
+        i: 1,
+        name: "Old Luari Deities",
+        type: "Folk",
+        form: "Polytheism",
+        culture: 1,
+        center: 3,
+        expansion: "culture",
+        expansionism: 0,
+        color: "#d5b8ed",
+        code: "OL",
+        deity: "Tiningtham, The Ancient Cyclope of War",
+        origins: [0]
+      },
+      {
+        i: 2,
+        name: "Norse Deities",
+        type: "Folk",
+        form: "Polytheism",
+        culture: 2,
+        center: 15,
+        expansion: "culture",
+        expansionism: 0,
+        color: "#8dd3c7",
+        code: "ND",
+        deity: "Shida, The Blue Pegasus",
+        origins: [0]
+      },
+      {
+        i: 3,
+        name: "Knutstable Deities",
+        type: "Organized",
+        form: "Polytheism",
+        culture: 1,
+        center: 3,
+        expansion: "global",
+        expansionism: 6.4,
+        color: "#bfdaff",
+        code: "KD",
+        deity: "Monrith, The Enlightened Spirit of Fire",
+        origins: [1, 2]
+      },
+      {
+        i: 4,
+        name: "Godhurstho School",
+        type: "Organized",
+        form: "Philosophical",
+        culture: 1,
+        center: 8,
+        expansion: "global",
+        expansionism: 3.6,
+        color: "#c5cbff",
+        code: "GS",
+        deity: "Stansin, The Eight",
+        origins: [1, 3]
+      },
+      {
+        i: 5,
+        name: "Luarism",
+        type: "Organized",
+        form: "Monotheism",
+        culture: 1,
+        center: 13,
+        expansion: "culture",
+        expansionism: 2.4,
+        color: "#e1b2ff",
+        code: "Lu",
+        deity: "Cleokeridbu, The Great Swan",
+        origins: [1, 2]
+      },
+      {
+        i: 6,
+        name: "Ost Blasphemy",
+        type: "Cult",
+        form: "Dark Cult",
+        culture: 2,
+        center: 20,
+        expansion: "global",
+        expansionism: 1,
+        color: "#b7c67b",
+        code: "OB",
+        deity: "Romiylatsk, The Ineffable Unicorn",
+        origins: [2, 1, 5]
+      }
+    ]);
+    expect([...cells.religion]).toEqual([
+      1, 1, 1, 3, 1, 1, 1, 1, 4, 1, 1, 1, 1, 5, 1, 2, 2, 2, 2, 2, 6, 2, 2, 2, 2, 2, 2, 2, 2, 2
+    ]);
+  });
+});

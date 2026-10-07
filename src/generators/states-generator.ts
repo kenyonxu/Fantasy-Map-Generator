@@ -4,6 +4,7 @@ import { Emblems } from "@/generators/emblems-generator";
 import type { Emblem } from "@/types/emblems";
 import { requireColor } from "@/utils/colorUtils";
 import { replaceWholeWord } from "@/utils/languageUtils";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireName, requireOneOf } from "@/utils/validationUtils";
 import {
   each,
@@ -158,6 +159,22 @@ export const getStateForm = (formName: string): StateForm | undefined =>
 
 type TaxBases = { salesTax: number; pollTax: number };
 
+// without a kit, direct callers (auto-update, the diplomacy editor) draw the ambient global stream
+const roll = (R: RandomKit | undefined, probability: number): boolean => (R ? R.P(probability) : P(probability));
+const pick = <T>(R: RandomKit | undefined, array: ArrayLike<T>): T => (R ? R.ra(array) : ra(array));
+const pickWeighted = (R: RandomKit | undefined, object: Record<string, number>): string =>
+  R ? R.rw(object) : rw(object);
+const rollInt = (R: RandomKit | undefined, min?: number, max?: number): number =>
+  R ? R.rand(min, max) : rand(min, max);
+const rollGauss = (
+  R: RandomKit | undefined,
+  expected?: number,
+  deviation?: number,
+  min?: number,
+  max?: number,
+  round?: number
+): number => (R ? R.gauss(expected, deviation, min, max, round) : gauss(expected, deviation, min, max, round));
+
 const DEFAULT_TAX_BY_FORM: Record<string, TaxBases> = {
   Monarchy: { salesTax: 0.15, pollTax: 0.2 },
   Theocracy: { salesTax: 0.25, pollTax: 0.1 },
@@ -169,7 +186,8 @@ const DEFAULT_TAX: TaxBases = DEFAULT_TAX_BY_FORM.Monarchy;
 
 class StatesModule {
   regenerate(): { warning?: string; error?: string } {
-    const { warning, error, states } = this.recreate();
+    const R = makeRandom(options.map.seed);
+    const { warning, error, states } = this.recreate(R);
     if (error || !states) return { warning, error };
 
     pack.states = states;
@@ -178,18 +196,17 @@ class StatesModule {
     this.getPoles();
     this.findNeighbors();
     this.collectStatistics();
-    this.assignColors();
-    this.generateCampaigns();
-    this.generateDiplomacy();
-    this.defineStateForms();
+    this.assignColors(R);
+    this.generateCampaigns(R);
+    this.generateDiplomacy(R);
+    this.defineStateForms(null, R);
     Provinces.regenerate(false);
     Military.regenerate();
 
     return { warning, error };
   }
 
-  private recreate(): { warning?: string; error?: string; states?: State[] } {
-    Math.random = aleaPRNG(options.map.seed);
+  private recreate(R: RandomKit): { warning?: string; error?: string; states?: State[] } {
     const statesCount = options.generation.states.limit;
     if (!statesCount) return { error: "<i>States Number</i> option value is zero. No counties are generated" };
 
@@ -224,7 +241,7 @@ class StatesModule {
 
     const sortedBurgs = validBurgs
       .filter(burg => !lockedStateIds.includes(burg.state ?? 0))
-      .map((burg): [typeof burg, number] => [burg, (burg.population ?? 0) * Math.random()])
+      .map((burg): [typeof burg, number] => [burg, (burg.population ?? 0) * R.next()])
       .sort((a, b) => b[1] - a[1])
       .map(([burg]) => burg);
     const count = Math.min(statesCount, validBurgs.length) + 1;
@@ -264,15 +281,15 @@ class StatesModule {
       const culture = capital.culture ?? 0;
       const capitalName = capital.name ?? "";
       const basename =
-        capitalName.length < 9 && capital.cell % 5 === 0 ? capitalName : Names.getCulture(culture, 3, 6, "");
-      const name = Names.getState(basename, culture);
+        capitalName.length < 9 && capital.cell % 5 === 0 ? capitalName : Names.getCulture(culture, 3, 6, "", R);
+      const name = Names.getState(basename, culture, undefined, R);
       const nomadic = [1, 2, 3, 4].includes(pack.cells.biome[capital.cell]);
       const type = nomadic
         ? "Nomadic"
         : pack.cultures[culture].type === "Nomadic"
           ? "Generic"
           : pack.cultures[culture].type;
-      const expansionism = rn(Math.random() * options.generation.states.sizeVariety + 1, 1);
+      const expansionism = rn(R.next() * options.generation.states.sizeVariety + 1, 1);
       const coa = Emblems.generate(capital.coa, 0.3, null, pack.cultures[culture].type);
       coa.shield = capital.coa?.shield;
       newStates.push({
@@ -293,7 +310,7 @@ class StatesModule {
     return { states: newStates, warning };
   }
 
-  private createStates() {
+  private createStates(R: RandomKit) {
     const states: State[] = [{ i: 0, name: "Neutrals", salesTax: 0, pollTax: 0, treasury: 0 } as State];
     const each5th = each(5);
     const sizeVariety = options.generation.states.sizeVariety;
@@ -301,9 +318,10 @@ class StatesModule {
     pack.burgs.forEach(burg => {
       if (!burg.i || !burg.capital) return;
 
-      const expansionism = rn(Math.random() * sizeVariety + 1, 1);
-      const basename = burg.name!.length < 9 && each5th(burg.cell) ? burg.name! : Names.getCultureShort(burg.culture!);
-      const name = Names.getState(basename, burg.culture!);
+      const expansionism = rn(R.next() * sizeVariety + 1, 1);
+      const basename =
+        burg.name!.length < 9 && each5th(burg.cell) ? burg.name! : Names.getCultureShort(burg.culture!, R);
+      const name = Names.getState(basename, burg.culture!, undefined, R);
       const type = pack.cultures[burg.culture!].type;
       const coa = Emblems.generate(null, null, null, type);
       coa.shield = Emblems.getShield(burg.culture!);
@@ -358,14 +376,15 @@ class StatesModule {
   }
 
   generate() {
-    pack.states = this.createStates();
+    const R = makeRandom(options.map.seed);
+    pack.states = this.createStates(R);
     this.expandStates();
     this.normalize();
     this.getPoles();
     this.findNeighbors();
-    this.assignColors();
-    this.generateCampaigns();
-    this.generateDiplomacy();
+    this.assignColors(R);
+    this.generateCampaigns(R);
+    this.generateDiplomacy(R);
   }
 
   expandStates() {
@@ -486,7 +505,7 @@ class StatesModule {
     });
   }
 
-  assignColors() {
+  assignColors(R?: RandomKit) {
     const colors = ["#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3", "#a6d854", "#ffd92f"]; // d3.schemeSet2;
     const states = pack.states;
 
@@ -494,7 +513,7 @@ class StatesModule {
     states.forEach(state => {
       if (!state.i || state.removed || state.lock) return;
       state.color = colors.find(color => state.neighbors!.every(neibStateId => states[neibStateId].color !== color));
-      if (!state.color) state.color = getRandomColor();
+      if (!state.color) state.color = getRandomColor(R?.next);
       colors.push(colors.shift() as string);
     });
 
@@ -503,7 +522,7 @@ class StatesModule {
       const sameColored = states.filter(state => state.color === c && state.i && !state.lock);
       sameColored.forEach((state, index) => {
         if (!index) return;
-        state.color = getMixedColor(state.color!);
+        state.color = getMixedColor(state.color!, 0.2, 0.3, R?.next);
       });
     });
   }
@@ -532,7 +551,7 @@ class StatesModule {
     }
   }
 
-  generateCampaign(state: State): Campaign[] {
+  generateCampaign(state: State, R?: RandomKit): Campaign[] {
     const wars = {
       War: 6,
       Conflict: 2,
@@ -547,23 +566,29 @@ class StatesModule {
     const neighbors = state.neighbors?.length ? state.neighbors : [0];
     return neighbors
       .map((i: number) => {
-        const name = i && P(0.8) ? pack.states[i].name : Names.getCultureShort(state.culture);
-        const start = gauss(options.map.lore.calendar.year - 100, 150, 1, options.map.lore.calendar.year - 6);
-        const end = start + gauss(4, 5, 1, options.map.lore.calendar.year - start - 1);
-        return { name: `${getAdjective(name)} ${rw(wars)}`, start, end, attacker: state.i!, defender: i };
+        const name = i && roll(R, 0.8) ? pack.states[i].name : Names.getCultureShort(state.culture, R);
+        const start = rollGauss(R, options.map.lore.calendar.year - 100, 150, 1, options.map.lore.calendar.year - 6);
+        const end = start + rollGauss(R, 4, 5, 1, options.map.lore.calendar.year - start - 1);
+        return {
+          name: `${getAdjective(name, R?.next)} ${pickWeighted(R, wars)}`,
+          start,
+          end,
+          attacker: state.i!,
+          defender: i
+        };
       })
       .sort((a, b) => a.start - b.start);
   }
 
-  generateCampaigns() {
+  generateCampaigns(R?: RandomKit) {
     pack.states.forEach(s => {
       if (!s.i || s.removed) return;
-      s.campaigns = this.generateCampaign(s);
+      s.campaigns = this.generateCampaign(s, R);
     });
   }
 
   // generate Diplomatic Relationships
-  generateDiplomacy() {
+  generateDiplomacy(R?: RandomKit) {
     TIME && console.time("generateDiplomacy");
     const { cells, states } = pack;
     states[0].diplomacy = [];
@@ -626,10 +651,22 @@ class StatesModule {
         const neib = naval ? false : states[f].neighbors!.includes(t);
         const neibOfNeib = naval || neib ? false : states[f].neighbors!.some(n => states[n].neighbors!.includes(t));
 
-        let status = naval ? rw(navals) : neib ? rw(neibs) : neibOfNeib ? rw(neibsOfNeibs) : rw(far);
+        let status = naval
+          ? pickWeighted(R, navals)
+          : neib
+            ? pickWeighted(R, neibs)
+            : neibOfNeib
+              ? pickWeighted(R, neibsOfNeibs)
+              : pickWeighted(R, far);
 
         // add Vassal
-        if (neib && P(0.8) && stateAreas[f] > areaMean && stateAreas[t] < areaMean && stateAreas[f] / stateAreas[t] > 2)
+        if (
+          neib &&
+          roll(R, 0.8) &&
+          stateAreas[f] > areaMean &&
+          stateAreas[t] < areaMean &&
+          stateAreas[f] / stateAreas[t] > 2
+        )
           status = "Vassal";
         states[f].diplomacy![t] = status === "Vassal" ? "Suzerain" : status;
         states[t].diplomacy![f] = status;
@@ -649,10 +686,10 @@ class StatesModule {
         .map((r, d) => (r === "Rival" && !states[d].diplomacy!.includes("Vassal") ? d : 0))
         .filter(d => d);
       if (!candidates.length) continue; // every rival is a vassal of a third party
-      const defender = ra(candidates);
+      const defender = pick(R, candidates);
       let ap = stateAreas[attacker] * states[attacker].expansionism;
       let dp = stateAreas[defender] * states[defender].expansionism;
-      if (ap < dp * gauss(1.6, 0.8, 0, 10, 2)) continue; // defender is too strong
+      if (ap < dp * rollGauss(R, 1.6, 0.8, 0, 10, 2)) continue; // defender is too strong
 
       const an = states[attacker].name;
       const dn = states[defender].name; // names
@@ -662,7 +699,7 @@ class StatesModule {
 
       // start an ongoing war
       const name = `${an}-${trimVowels(dn)}ian War`;
-      const start = options.map.lore.calendar.year - gauss(2, 3, 0, 10);
+      const start = options.map.lore.calendar.year - rollGauss(R, 2, 3, 0, 10);
       const war = [name, `${an} declared a war on its rival ${dn}`];
       const campaign: Campaign = { name, start, attacker, defender };
       states[attacker].campaigns!.push(campaign);
@@ -690,7 +727,7 @@ class StatesModule {
       // defender allies join
       dd.forEach((r, d) => {
         if (r !== "Ally" || states[d].diplomacy!.includes("Vassal")) return;
-        if (states[d].diplomacy![attacker] !== "Rival" && ap / dp > 2 * gauss(1.6, 0.8, 0, 10, 2)) {
+        if (states[d].diplomacy![attacker] !== "Rival" && ap / dp > 2 * rollGauss(R, 1.6, 0.8, 0, 10, 2)) {
           const reason = states[d].diplomacy!.includes("Enemy") ? "Being already at war," : `Frightened by ${an},`;
           war.push(`${reason} ${states[d].name} severed the defense pact with ${dn}`);
           dd[d] = states[d].diplomacy![defender] = "Suspicion";
@@ -715,7 +752,7 @@ class StatesModule {
       ad.forEach((r, d) => {
         if (r !== "Ally" || states[d].diplomacy!.includes("Vassal") || defenders.includes(d)) return;
         const name = states[d].name;
-        if (states[d].diplomacy![defender] !== "Rival" && (P(0.2) || ap <= dp * 1.2)) {
+        if (states[d].diplomacy![defender] !== "Rival" && (roll(R, 0.2) || ap <= dp * 1.2)) {
           war.push(`${an}'s ally ${name} avoided entering the war`);
           return;
         }
@@ -759,7 +796,7 @@ class StatesModule {
   }
 
   // select a forms for listed or all valid states
-  defineStateForms(list: number[] | null = null) {
+  defineStateForms(list: number[] | null = null, R: RandomKit = makeRandom(options.map.seed)) {
     const states = pack.states.filter(s => s.i && !s.removed && !s.lock);
     if (states.length < 1) return;
 
@@ -819,12 +856,12 @@ class StatesModule {
       const religion = pack.cells.religion[s.center];
       const isTheocracy =
         (religion && pack.religions[religion].expansion === "state") ||
-        (P(0.1) && ["Organized", "Cult"].includes(pack.religions[religion].type));
-      const isAnarchy = P(0.01 - tier / 500);
+        (roll(R, 0.1) && ["Organized", "Cult"].includes(pack.religions[religion].type));
+      const isAnarchy = roll(R, 0.01 - tier / 500);
 
       if (isTheocracy) s.form = "Theocracy";
       else if (isAnarchy) s.form = "Anarchy";
-      else s.form = s.type === "Naval" ? rw(naval) : rw(generic);
+      else s.form = s.type === "Naval" ? pickWeighted(R, naval) : pickWeighted(R, generic);
 
       const selectForm = (s: any, tier: number) => {
         const base = pack.cultures[s.culture].base;
@@ -836,12 +873,12 @@ class StatesModule {
             if (
               form === "Duchy" &&
               s.neighbors.length > 1 &&
-              rand(6) < s.neighbors.length &&
+              rollInt(R, 6) < s.neighbors.length &&
               s.diplomacy.includes("Vassal")
             )
               return "Marches"; // some vassal duchies on borderland
-            if (base === 1 && P(0.3) && s.diplomacy.includes("Vassal")) return "Dominion"; // English vassals
-            if (P(0.3) && s.diplomacy.includes("Vassal")) return "Protectorate"; // some vassals
+            if (base === 1 && roll(R, 0.3) && s.diplomacy.includes("Vassal")) return "Dominion"; // English vassals
+            if (roll(R, 0.3) && s.diplomacy.includes("Vassal")) return "Protectorate"; // some vassals
           }
 
           if (base === 31 && (form === "Empire" || form === "Kingdom")) return "Khanate"; // Mongolian
@@ -865,51 +902,51 @@ class StatesModule {
               s.name = pack.burgs[s.capital].name;
               return "Free City";
             }
-            if (P(0.3)) return "City-state";
+            if (roll(R, 0.3)) return "City-state";
           }
-          return rw(republic);
+          return pickWeighted(R, republic);
         }
 
-        if (s.form === "Union") return rw(union);
-        if (s.form === "Anarchy") return rw(anarchy);
+        if (s.form === "Union") return pickWeighted(R, union);
+        if (s.form === "Anarchy") return pickWeighted(R, anarchy);
 
         if (s.form === "Theocracy") {
           // European
           if ([0, 1, 2, 3, 4, 6, 8, 9, 13, 15, 20].includes(base)) {
-            if (P(0.1)) return `Divine ${monarchy[tier]}`;
-            if (tier < 2 && P(0.5)) return "Diocese";
-            if (tier < 2 && P(0.5)) return "Bishopric";
+            if (roll(R, 0.1)) return `Divine ${monarchy[tier]}`;
+            if (tier < 2 && roll(R, 0.5)) return "Diocese";
+            if (tier < 2 && roll(R, 0.5)) return "Bishopric";
           }
-          if (P(0.9) && [7, 5].includes(base)) {
+          if (roll(R, 0.9) && [7, 5].includes(base)) {
             // Greek, Ruthenian
             if (tier < 2) return "Eparchy";
             if (tier === 2) return "Exarchate";
             if (tier > 2) return "Patriarchate";
           }
-          if (P(0.9) && [21, 16].includes(base)) return "Imamah"; // Nigerian, Turkish
-          if (tier > 2 && P(0.8) && [18, 17, 28].includes(base)) return "Caliphate"; // Arabic, Amazigh, Swahili
-          return rw(theocracy);
+          if (roll(R, 0.9) && [21, 16].includes(base)) return "Imamah"; // Nigerian, Turkish
+          if (tier > 2 && roll(R, 0.8) && [18, 17, 28].includes(base)) return "Caliphate"; // Arabic, Amazigh, Swahili
+          return pickWeighted(R, theocracy);
         }
       };
 
       s.formName = selectForm(s, tier);
-      s.fullName = this.getFullName(s);
+      s.fullName = this.getFullName(s, R.next);
 
-      const taxes = this.defineTaxRates(s);
+      const taxes = this.defineTaxRates(s, R);
       s.salesTax = taxes.salesTax;
       s.pollTax = taxes.pollTax;
     }
   }
 
-  defineTaxRates(state: State) {
+  defineTaxRates(state: State, R?: RandomKit) {
     const { salesTax, pollTax } = DEFAULT_TAX_BY_FORM[state.form || ""] || DEFAULT_TAX;
     return {
-      salesTax: rn(gauss(salesTax, salesTax * 0.15, salesTax * 0.5, salesTax * 1.5, 4), 2),
-      pollTax: rn(gauss(pollTax, pollTax * 0.15, pollTax * 0.5, pollTax * 1.5, 4), 2)
+      salesTax: rn(rollGauss(R, salesTax, salesTax * 0.15, salesTax * 0.5, salesTax * 1.5, 4), 2),
+      pollTax: rn(rollGauss(R, pollTax, pollTax * 0.15, pollTax * 0.5, pollTax * 1.5, 4), 2)
     };
   }
 
-  getFullName(state: State) {
+  getFullName(state: State, next: () => number = Math.random) {
     // state forms requiring Adjective + Name, all other forms use scheme Form + Of + Name
     const adjForms = [
       "Empire",
@@ -933,7 +970,7 @@ class StatesModule {
     if (!state.formName) return state.name;
     if (!state.name && state.formName) return `The ${state.formName}`;
     const adjName = adjForms.includes(state.formName) && !/-| /.test(state.name);
-    return adjName ? `${getAdjective(state.name)} ${state.formName}` : `${state.formName} of ${state.name}`;
+    return adjName ? `${getAdjective(state.name, next)} ${state.formName}` : `${state.formName} of ${state.name}`;
   }
 
   /** Rename a state; a custom full name or label keeps its pattern when the old name stands in it as a whole word */

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import Alea from "alea";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Minimal pack geometry used across all scenarios
@@ -496,5 +497,71 @@ describe("BurgModule.rename", () => {
     expect(() => burgs.rename(2, "X")).toThrow("Burg 2 does not exist");
     expect(() => burgs.rename(0, "X")).toThrow("does not exist");
     expect(() => burgs.rename(1, "  ")).toThrow("must not be empty");
+  });
+});
+
+// Golden for the PRNG injection: generate() must produce the same burgs whether its draws come
+// from the ambient stream (pre-migration, seeded here) or the generator's own seed-bound kit
+// (post-migration) - both are Alea over options.map.seed, drawn in the same call order.
+describe("Burgs.generate golden (PRNG)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("reproduces capitals and towns from a fixed seed", async () => {
+    const NamesModule = await import("./names-generator"); // real Names: burg names roll from its bases
+    globalThis.Names = NamesModule.Names;
+    await import("./burgs-generator");
+    const n = 40;
+    const cells = {
+      i: Array.from({ length: n }, (_, i) => i),
+      p: Array.from({ length: n }, (_, i) => [(i % 8) * 200, Math.floor(i / 8) * 300] as [number, number]),
+      culture: Uint16Array.from(Array.from({ length: n }, (_, i) => (i < 20 ? 1 : 2))),
+      h: new Array(n).fill(35),
+      s: Array.from({ length: n }, (_, i) => ((i * 11) % 17) + 2),
+      f: new Array(n).fill(0),
+      haven: new Array(n).fill(0),
+      harbor: new Array(n).fill(0),
+      r: new Array(n).fill(0),
+      burg: new Uint16Array(n)
+    };
+    vi.stubGlobal("pack", {
+      cells,
+      cultures: [{ base: 0 }, { base: 1 }, { base: 5 }],
+      rivers: [],
+      features: [{ i: 0, type: "ocean", cells: 0 }]
+    });
+    vi.stubGlobal("Rivers", { isNavigable: () => false });
+
+    options = Options.getDefaultOptions();
+    options.map.seed = "burgs-gold";
+    options.generation.states.limit = 4;
+    options.generation.burgs.limit = 6;
+    vi.spyOn(Math, "random").mockImplementation(Alea("burgs-gold") as () => number);
+
+    Burgs.generate();
+
+    const summary = ((globalThis.pack as any).burgs as any[]).slice(1).map(b => ({
+      i: b.i,
+      cell: b.cell,
+      x: b.x,
+      y: b.y,
+      culture: b.culture,
+      name: b.name,
+      capital: b.capital
+    }));
+    expect(summary).toEqual([
+      { i: 1, cell: 6, x: 1200, y: 0, culture: 1, name: "Carton", capital: 1 },
+      { i: 2, cell: 23, x: 1400, y: 600, culture: 2, name: "Rovo", capital: 1 },
+      { i: 3, cell: 37, x: 1000, y: 1200, culture: 2, name: "Dvenets", capital: 1 },
+      { i: 4, cell: 26, x: 400, y: 900, culture: 2, name: "Torch", capital: 1 },
+      { i: 5, cell: 3, x: 600, y: 0, culture: 1, name: "Piclif", capital: 0 },
+      { i: 6, cell: 9, x: 200, y: 300, culture: 1, name: "Barton", capital: 0 },
+      { i: 7, cell: 33, x: 200, y: 1200, culture: 2, name: "Golok", capital: 0 },
+      { i: 8, cell: 21, x: 1000, y: 600, culture: 2, name: "Glins", capital: 0 },
+      { i: 9, cell: 16, x: 0, y: 600, culture: 1, name: "Sudbury", capital: 0 },
+      { i: 10, cell: 24, x: 0, y: 900, culture: 2, name: "Klyatya", capital: 0 }
+    ]);
   });
 });

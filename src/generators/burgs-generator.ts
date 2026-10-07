@@ -4,6 +4,7 @@ import { Emblems } from "@/generators/emblems-generator";
 import type { BurgGroup } from "@/types/burg-groups";
 import type { Emblem } from "@/types/emblems";
 import type { IconSet } from "@/types/icons";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { safeParseJSON } from "@/utils/stringUtils";
 import { requireName, requireOneOf } from "@/utils/validationUtils";
 import { each, gauss, minmax, normalize, P, rn } from "../utils";
@@ -73,6 +74,7 @@ class BurgModule {
 
   generate() {
     const { cells } = pack;
+    const R = makeRandom(options.map.seed);
 
     let burgs: Burg[] = [0 as any]; // burgs array
     cells.burg = new Uint16Array(cells.i.length);
@@ -86,7 +88,7 @@ class BurgModule {
     let burgsQuadtree = quadtree();
 
     const generateCapitals = () => {
-      const randomize = (score: number) => score * (0.5 + Math.random() * 0.5);
+      const randomize = (score: number) => score * (0.5 + R.next() * 0.5);
       const score = new Int16Array(cells.s.map(randomize));
       const sorted = populatedCells.sort((a, b) => score[b] - score[a]);
 
@@ -117,7 +119,7 @@ class BurgModule {
         burg.i = burgId;
         burg.state = burgId;
         burg.culture = cells.culture[burg.cell];
-        burg.name = Names.getCultureShort(burg.culture);
+        burg.name = Names.getCultureShort(burg.culture, R);
         burg.feature = cells.f[burg.cell];
         burg.capital = 1;
         cells.burg[burg.cell] = burgId;
@@ -125,7 +127,7 @@ class BurgModule {
     };
 
     const generateTowns = () => {
-      const randomize = (score: number) => score * gauss(1, 3, 0, 20, 3);
+      const randomize = (score: number) => score * R.gauss(1, 3, 0, 20, 3);
       const score = new Int16Array(cells.s.map(randomize));
       const sorted = populatedCells.sort((a, b) => score[b] - score[a]);
 
@@ -138,12 +140,12 @@ class BurgModule {
           const cell = sorted[i];
           const [x, y] = cells.p[cell];
 
-          const minSpacing = spacing * gauss(1, 0.3, 0.2, 2, 2); // randomize to make placement not uniform
+          const minSpacing = spacing * R.gauss(1, 0.3, 0.2, 2, 2); // randomize to make placement not uniform
           if (burgsQuadtree.find(x, y, minSpacing) !== undefined) continue; // to close to existing burg
 
           const burgId = burgs.length;
           const culture = cells.culture[cell];
-          const name = Names.getCulture(culture);
+          const name = Names.getCulture(culture, undefined, undefined, undefined, R);
           const feature = cells.f[cell];
           burgs.push({
             cell,
@@ -374,18 +376,18 @@ class BurgModule {
     return [tx, ty];
   }
 
-  private definePopulation(burg: Burg) {
+  private definePopulation(burg: Burg, R?: RandomKit) {
     const cellId = burg.cell;
     let population = pack.cells.s[cellId] / 5;
     if (burg.capital) population *= 1.5;
     const connectivityRate = Routes.getConnectivityRate(cellId);
     if (connectivityRate) population *= connectivityRate;
-    population *= gauss(1, 1, 0.25, 4, 5); // randomize
+    population *= R ? R.gauss(1, 1, 0.25, 4, 5) : gauss(1, 1, 0.25, 4, 5); // randomize
     population += (((burg.i as number) % 100) - (cellId % 100)) / 1000; // unround
     burg.population = rn(Math.max(population, 0.01), 3);
   }
 
-  private defineEmblem(burg: Burg) {
+  private defineEmblem(burg: Burg, R?: RandomKit) {
     burg.type = this.getType(burg.cell, burg.port);
 
     const state = pack.states[burg.state as number];
@@ -396,20 +398,21 @@ class BurgModule {
     else if (burg.port) kinship -= 0.1;
     if (burg.culture !== state.culture) kinship -= 0.25;
 
-    const type = burg.capital && P(0.2) ? "Capital" : burg.type === "Generic" ? "City" : burg.type;
+    const type = burg.capital && (R ? R.P(0.2) : P(0.2)) ? "Capital" : burg.type === "Generic" ? "City" : burg.type;
     burg.coa = Emblems.generate(stateCOA, kinship, null, type);
     burg.coa.shield = Emblems.getShield(burg.culture!, burg.state!);
   }
 
-  private defineFeatures(burg: Burg) {
+  private defineFeatures(burg: Burg, R?: RandomKit) {
+    const roll = (probability: number) => (R ? R.P(probability) : P(probability));
     const pop = burg.population as number;
-    burg.citadel = Number(burg.capital || (pop > 50 && P(0.75)) || (pop > 15 && P(0.5)) || P(0.1));
-    burg.walls = Number(burg.capital || pop > 30 || (pop > 20 && P(0.75)) || (pop > 10 && P(0.5)) || P(0.1));
-    burg.shanty = Number(pop > 60 || (pop > 40 && P(0.75)) || (pop > 20 && burg.walls && P(0.4)));
+    burg.citadel = Number(burg.capital || (pop > 50 && roll(0.75)) || (pop > 15 && roll(0.5)) || roll(0.1));
+    burg.walls = Number(burg.capital || pop > 30 || (pop > 20 && roll(0.75)) || (pop > 10 && roll(0.5)) || roll(0.1));
+    burg.shanty = Number(pop > 60 || (pop > 40 && roll(0.75)) || (pop > 20 && burg.walls && roll(0.4)));
     const religion = pack.cells.religion[burg.cell] as number;
     const theocracy = pack.states[burg.state as number].form === "Theocracy";
     burg.temple = Number(
-      (religion && theocracy && P(0.5)) || pop > 50 || (pop > 35 && P(0.75)) || (pop > 20 && P(0.5))
+      (religion && theocracy && roll(0.5)) || pop > 50 || (pop > 35 && roll(0.75)) || (pop > 20 && roll(0.5))
     );
   }
 
@@ -569,12 +572,12 @@ class BurgModule {
     }
   }
 
-  specify() {
+  specify(R: RandomKit = makeRandom(options.map.seed)) {
     pack.burgs.forEach(burg => {
       if (!burg.i || burg.removed || burg.lock) return;
-      this.definePopulation(burg);
-      this.defineEmblem(burg);
-      this.defineFeatures(burg);
+      this.definePopulation(burg, R);
+      this.defineEmblem(burg, R);
+      this.defineFeatures(burg, R);
     });
 
     const populations = pack.burgs
@@ -759,7 +762,7 @@ class BurgModule {
   }
 
   /** Found a burg on a free land cell at a map point; returns its id */
-  add(x: number, y: number): number {
+  add(x: number, y: number, R?: RandomKit): number {
     const { cells } = pack;
     const cellId = Pack.requireCell(x, y);
     if (cells.h[cellId] < 20) throw new Error("A burg cannot be placed in the water");
@@ -774,14 +777,14 @@ class BurgModule {
       i: burgId,
       state: cells.state[cellId],
       culture,
-      name: Names.getCulture(culture),
+      name: Names.getCulture(culture, undefined, undefined, undefined, R),
       feature: cells.f[cellId],
       capital: 0,
       port: 0
     };
-    this.definePopulation(burg);
-    this.defineEmblem(burg);
-    this.defineFeatures(burg);
+    this.definePopulation(burg, R);
+    this.defineEmblem(burg, R);
+    this.defineFeatures(burg, R);
 
     const populations = pack.burgs
       .filter(b => b.i && !b.removed)
@@ -798,6 +801,7 @@ class BurgModule {
 
   regenerate(): void {
     const { cells, burgs, states, provinces } = pack;
+    const R = makeRandom(options.map.seed);
     Population.rankCells();
 
     const newBurgs: Burg[] = [0 as unknown as Burg];
@@ -849,7 +853,7 @@ class BurgModule {
       }
     }
 
-    const score = new Int16Array(cells.s.map(value => value * Math.random()));
+    const score = new Int16Array(cells.s.map(value => value * R.next()));
     const sorted = cells.i.filter(i => score[i] > 0 && cells.culture[i]).sort((a, b) => score[b] - score[a]);
     const statesCount = states.filter(state => state.i && !state.removed).length;
     const burgsCount =
@@ -862,7 +866,7 @@ class BurgModule {
       const id = newBurgs.length;
       const cell = sorted[index];
       const [x, y] = cells.p[cell];
-      const minDistance = spacing * gauss(1, 0.3, 0.2, 2, 2);
+      const minDistance = spacing * R.gauss(1, 0.3, 0.2, 2, 2);
       if (burgsTree.find(x, y, minDistance) !== undefined) continue;
 
       const stateId = cells.state[cell];
@@ -873,7 +877,7 @@ class BurgModule {
       }
 
       const culture = cells.culture[cell];
-      const name = Names.getCulture(culture);
+      const name = Names.getCulture(culture, undefined, undefined, undefined, R);
       newBurgs.push({ cell, x, y, state: stateId, i: id, culture, name, capital, feature: cells.f[cell] });
       burgsTree.add([x, y]);
       cells.burg[cell] = id;
@@ -886,7 +890,7 @@ class BurgModule {
       .filter(state => state.i && !state.removed && !state.capital)
       .forEach(state => {
         // a kept burg already on the center becomes the capital
-        const burgId = cells.burg[state.center] || this.add(...cells.p[state.center]);
+        const burgId = cells.burg[state.center] || this.add(...cells.p[state.center], R);
         state.capital = burgId;
         state.center = pack.burgs[burgId].cell;
         const burg = pack.burgs[burgId];
@@ -895,7 +899,7 @@ class BurgModule {
         this.changeGroup(burg, null);
       });
 
-    this.specify();
+    this.specify(R);
     Routes.regenerate();
   }
 
