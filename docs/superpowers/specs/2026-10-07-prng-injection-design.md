@@ -99,11 +99,17 @@ generate(allowErosion = true) {
 
 - **features-generator Erase 模式**：`features-generator.ts:109` 故意重设种子以在 heightmap edit（Erase mode）时保序——这是与编辑器共用全局序列的隐式契约。注入化后该契约消失，Erase 模式结果可能与迁移前不同。**裁决：可接受**（编辑器场景的可复现性本非用户可感知契约），在 spec 明示并在该生成器黄金测试中固定新行为。
 - **random-template mapSize**：`Coordinates` 注入后，随机模板的 mapSize/latitude 从“继承管线残留流”变为从 `makeRandom(options.map.seed)` 位置 0 起步——同一 seed 的随机模板地图（volcano/archipelago/continents… 加权 roll）的 mapSize/latitude 可能与迁移前不同；固定模板不受影响。已在 coordinates 黄金测试中固定新行为。
-- **值级位移**：zones/journeys 的取值、river 的名称/类型（从 provinces 保留的 `Alea(localSeed)` 流位置 0 起步抽取）、feature 名称（culture 分支经 ambient `Names.getCulture` 在位移后的位置抽取）、states/burgs 的 coa 交错——与迁移前不同。
+- **值级位移**：zones/journeys 的取值、feature 名称（culture 分支经 ambient `Names.getCulture` 在位移后的位置抽取）、states/burgs 的 coa 交错——与迁移前不同。
 - **管线级位移（完整清单，最终评审核定）**：cultures 的选择/放置、burg 的放置/命名、states 的放置（管线路径）、religions、burgsSpecify 细节、state forms/taxes、military notes、markers——迁移前这些步骤消费共享流的残留位置，迁移后各自从全新的 `Alea(options.map.seed)` 位置 0 起步，输出与迁移前不同。
 - **同一 seed 的全图与迁移前不同——这是移除共享全局流的必然结果；迁移后同一 seed 的全图是确定性的且可复现。**
 - 手动“重新生成”（states/cultures 等）从“每次不同”变为“同种子一致”——这是**目标行为**（`States.recreate()` 已先行修复）。
 - **政策注记（供 controllers 阶段）**：本阶段确立“generation path = kit, interactive path = ambient”契约——`grep "Math.random()" src/generators` 留有 12 处已核对的保留点（goods×3 编辑器 reroll 包装 + regenerate 路径、relief×6 渲染路径、routes×1 reroll 包装、markets×1 与 journey-story×1 ambient 兜底），均为有意保留，非泄漏；controllers 阶段沿用此契约。
+
+### controllers 阶段收尾（2026-10-07 追加）
+
+- **Rivers.specify 线程化**：`specify(R?: RandomKit)` 现在把 kit 传入 `getType`/`getName`；pipeline 两个调用点（`generation-pipeline.ts:41,90`）传 `makeRandom(options.map.seed)`，编辑器调用点（heightmap-editor、world-configurator）传新鲜种子保重掷 UX。**`provinces-generator.ts:89` 的最后一个生成器全局写点已删除**——`src/generators/` 目录现在零全局写点。河流类型/名字变为 provinces-kit 驱动（同种子确定性），值与迁移前不同（与本表同类偏移）。
+- **5 处非生成器写点的处置**：`seed.ts:20`（喂 `options-model.randomize()`，真实下游消费者）与 `heightmap-editor.ts:1740`（编辑器路径）按政策**保留**；`heightmap-selection.ts:235,343,355`（模板预览渲染，无下游）也保留——它们自包含、按 seed 确定性、无害。统一收编是 controllers 阶段的后续项。
+- **Names 交互调用点**（16 文件 25 处“摇名字”）：`Names` 方法已是可选 `R?` + 环境回退，交互点保持 ambient（重掷 UX 保留），**零代码改动**。
 
 ## 风险与备注
 
