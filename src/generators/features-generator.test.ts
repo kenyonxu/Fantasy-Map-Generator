@@ -1,3 +1,4 @@
+import Alea from "alea";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { CapturedFeature, Feature } from "./features-generator";
 
@@ -164,5 +165,96 @@ describe("feature naming", () => {
     expect(pack.features[3].name).toBeTruthy();
     expect(pack.features[3].name).not.toMatch(/^name-of-/);
     expect(pack.features[4].name).toBe("Kept Sea");
+  });
+});
+
+// PRNG injection ruling (spec "已知变化"): markupGrid's re-seed of the global stream — kept so a
+// heightmap edit in Erase mode replayed the same sequence — dies with injection, and Erase-mode
+// output may differ from pre-migration. This golden locks the NEW post-migration behavior: markup
+// output is randomness-free and naming depends only on options.map.seed, never on how much stale
+// global stream was consumed before (the junk rolls below). Pre-migration the :517 re-seed wiped
+// them; post-migration defineNames draws from its own seed-bound kit — same names either way.
+describe("feature markup and naming golden (PRNG injection)", () => {
+  let Features: any;
+
+  beforeAll(async () => {
+    globalThis.window = globalThis.window || ({} as any);
+    await import("./features-generator");
+    Features = (globalThis as any).Features;
+  });
+
+  function buildFixture(seed = "golden-seed") {
+    globalThis.options = { map: { seed, graph: { width: 100, height: 100 } } } as unknown as typeof options;
+    globalThis.grid = {
+      cells: {
+        i: new Array(5),
+        h: [30, 10, 25, 10, 10],
+        c: [[1, 2], [0, 3], [0, 3], [1, 2, 4], [3]],
+        b: [0, 0, 0, 0, 1]
+      }
+    } as unknown as typeof grid;
+    globalThis.Names = { getCulture: (culture: number) => `name-of-${culture}` } as unknown as typeof Names;
+    // cells: 0 island (culture 1), 1 land shore of the lake (culture 2), 2 lake, 3 ocean, 4 named ocean
+    globalThis.pack = {
+      cells: {
+        culture: [1, 2, 0, 0],
+        p: [
+          [10, 10],
+          [20, 10],
+          [30, 10],
+          [5, 50]
+        ]
+      },
+      cultures: [{ base: 0 }, { base: 1 }, { base: 2 }],
+      features: [
+        undefined,
+        { i: 1, type: "island", firstCell: 0 },
+        { i: 2, type: "lake", firstCell: 2, shoreline: [1] },
+        { i: 3, type: "ocean", firstCell: 3, cells: 50 },
+        { i: 4, type: "ocean", firstCell: 3, cells: 1, name: "Kept Sea" }
+      ]
+    } as unknown as typeof pack;
+  }
+
+  function runMarkupAndNaming(seed = "golden-seed") {
+    globalThis.options.map.seed = seed;
+    Math.random = Alea(seed);
+    for (let i = 0; i < 5; i++) Math.random(); // stale editor-stream consumption before the markup
+    Features.markupGrid();
+    for (let i = 0; i < 3; i++) Math.random(); // steps between the markup and the naming
+    Features.defineNames();
+    return {
+      t: Array.from(globalThis.grid.cells.t),
+      f: Array.from(globalThis.grid.cells.f),
+      gridFeatures: JSON.parse(JSON.stringify(globalThis.grid.features)),
+      names: globalThis.pack.features.map((feature: Feature | undefined) => feature?.name)
+    };
+  }
+
+  it("marks grid features and names pack features deterministically from the seed alone", () => {
+    buildFixture();
+    const run = runMarkupAndNaming();
+    expect(run.t).toEqual([1, -1, 1, -1, -2]);
+    expect(run.f).toEqual([1, 2, 1, 2, 2]);
+    expect(run.gridFeatures).toEqual([
+      0,
+      { i: 1, land: true, border: false, type: "island" },
+      { i: 2, land: false, border: true, type: "ocean" }
+    ]);
+    expect(run.names).toEqual([undefined, "name-of-1", "name-of-2", "Cold", "Kept Sea"]);
+  });
+
+  it("reproduces the same names on a fresh reseed", () => {
+    buildFixture();
+    const first = runMarkupAndNaming();
+    buildFixture();
+    expect(runMarkupAndNaming()).toEqual(first);
+  });
+
+  it("rolls different names under a different seed", () => {
+    buildFixture();
+    const baseline = runMarkupAndNaming();
+    buildFixture();
+    expect(runMarkupAndNaming("golden-seed-6").names).not.toEqual(baseline.names); // Cold vs Shining
   });
 });
