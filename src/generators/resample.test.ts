@@ -4,6 +4,7 @@ import { Resample as Resampler } from "./resample";
 
 it("resamples at the requested density and records it in the map", () => {
   options = Options.getDefaultOptions();
+  options.map.seed = "old"; // a live map always has one: Grid.generate rejects an empty seed
   options.map.graph = { width: 800, height: 600, points: 1000 };
   options.generation.graph.density = 2;
   vi.stubGlobal("grid", Grid.generate("old", 800, 600));

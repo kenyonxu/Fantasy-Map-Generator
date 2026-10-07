@@ -1,9 +1,9 @@
 // The initial graph: a jittered square grid of points
-import Alea from "alea";
 import { min } from "d3";
 import type { GridCells, GridGraph } from "@/types/GridGraph";
 import type { Point } from "@/types/global";
 import { rn, SEA_LEVEL } from "@/utils";
+import { makeRandom, type RandomKit } from "@/utils/random";
 import { calculateVoronoi } from "./voronoi";
 
 declare global {
@@ -17,13 +17,13 @@ class GridModule {
   }
 
   generate(seed: string, width: number, height: number, cellsDesired = this.getCellsDesired()): GridGraph {
-    Math.random = Alea(seed); // reset PRNG
+    const R = makeRandom(seed); // own PRNG, reset per run
 
     const spacing = this.getSpacing(cellsDesired, width, height);
     const boundary = this.getBoundaryPoints(width, height, spacing);
 
     TIME && console.time("placePoints");
-    const points = this.getJitteredPoints(width, height, spacing);
+    const points = this.getJitteredPoints(width, height, spacing, R);
     TIME && console.timeEnd("placePoints");
 
     const { cells, vertices } = calculateVoronoi(points, boundary);
@@ -133,11 +133,11 @@ class GridModule {
   }
 
   /** points of a square grid, each one randomly shifted within its square */
-  private getJitteredPoints(width: number, height: number, spacing: number): Point[] {
+  private getJitteredPoints(width: number, height: number, spacing: number, R: RandomKit): Point[] {
     const radius = spacing / 2;
     const jittering = radius * 0.9;
     const doubleJittering = jittering * 2;
-    const jitter = () => Math.random() * doubleJittering - jittering;
+    const jitter = () => R.next() * doubleJittering - jittering;
 
     const points: Point[] = [];
     for (let y = radius; y < height; y += spacing) {

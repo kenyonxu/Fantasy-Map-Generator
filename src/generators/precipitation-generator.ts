@@ -1,7 +1,7 @@
 // The simplest precipitation model: winds enter the map from each side and drop humidity as they pass the cells
-import Alea from "alea";
 import { mean, range } from "d3";
-import { minmax, rand, SEA_LEVEL } from "@/utils";
+import { minmax, SEA_LEVEL } from "@/utils";
+import { makeRandom } from "@/utils/random";
 
 declare global {
   var Precipitation: PrecipitationModule;
@@ -31,7 +31,7 @@ class PrecipitationModule {
 
   /** precipitation of every grid cell for the given heights and temperatures, the grid itself stays untouched */
   compute(h: ArrayLike<number>, temp: ArrayLike<number>): Uint8Array {
-    Math.random = Alea(options.map.seed); // the same winds for the same map, whoever rolled before
+    const R = makeRandom(options.map.seed); // the same winds for the same map, whoever rolled before
     const { cells, cellsX, cellsY } = grid;
     const prec = new Uint8Array(cells.i.length);
 
@@ -64,7 +64,7 @@ class PrecipitationModule {
 
           if (h[current] < SEA_LEVEL) {
             if (h[current + next] >= SEA_LEVEL) {
-              prec[current + next] += Math.max(humidity / rand(10, 20), 1); // coastal precipitation
+              prec[current + next] += Math.max(humidity / R.rand(10, 20), 1); // coastal precipitation
             } else {
               humidity = Math.min(humidity + 5 * modifier, maxPrec); // wind gets more humidity passing water cell
               prec[current] += 5 * modifier; // water cells precipitation (need to correctly pour water through lakes)
