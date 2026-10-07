@@ -2,7 +2,7 @@ import { quadtree, sum } from "d3";
 import { Icons } from "@/components/icons";
 import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireName, requireOneOf } from "@/utils/validationUtils";
-import { findAllInQuadtree, gauss, minmax, nth, ra, rand, rn, si } from "../utils";
+import { findAllInQuadtree, gauss, generateSeed, minmax, nth, ra, rand, rn, si } from "../utils";
 import type { State } from "./states-generator";
 
 declare global {
@@ -55,8 +55,9 @@ interface Platoon {
 }
 
 class MilitaryModule {
+  // a fresh seed per click, so the regenerate button rerolls (Routes.regenerate precedent); the pipeline uses generate()
   regenerate(): void {
-    this.generate();
+    this.generate(makeRandom(generateSeed()));
   }
 
   generate(R: RandomKit = makeRandom(options.map.seed)) {

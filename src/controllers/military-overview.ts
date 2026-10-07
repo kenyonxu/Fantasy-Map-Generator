@@ -17,7 +17,8 @@ import { tip } from "@/components/tooltips";
 import { Controllers } from "@/controllers";
 import type { State } from "@/generators/states-generator";
 import type { MilitaryUnit } from "@/types/Military";
-import { downloadFile, getFileName } from "@/utils";
+import { downloadFile, generateSeed, getFileName } from "@/utils";
+import { makeRandom } from "@/utils/random";
 import { capitalize, ensureEl, escapeHtml, rn, sanitizeId, si, toCsvField, wiki } from "../utils";
 
 const dialogId = "militaryOverview" as const;
@@ -612,7 +613,7 @@ function militaryRecalculate(): void {
     buttons: {
       Recalculate: function () {
         $(this).dialog("close");
-        Military.generate();
+        Military.generate(makeRandom(generateSeed())); // a fresh seed per click, so recalculate rerolls
         Layers.draw("military");
         refreshMilitaryOverview();
       },

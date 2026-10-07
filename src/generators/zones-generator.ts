@@ -2,7 +2,7 @@ import { max, mean } from "d3";
 import { requireColor } from "@/utils/colorUtils";
 import { makeRandom, type RandomKit } from "@/utils/random";
 import { requireName } from "@/utils/validationUtils";
-import { gauss, getAdjective, P, ra, rand, rw } from "../utils";
+import { gauss, generateSeed, getAdjective, P, ra, rand, rw } from "../utils";
 import { Population } from "./population-generator";
 
 declare global {
@@ -122,8 +122,9 @@ class ZonesModule {
     return zone;
   }
 
+  // a fresh seed per click, so the regenerate button rerolls (Routes.regenerate precedent); the pipeline uses generate()
   regenerate(globalModifier = 1): void {
-    this.generate(globalModifier);
+    this.generate(globalModifier, makeRandom(generateSeed()));
   }
 
   generate(globalModifier = 1, R: RandomKit = makeRandom(options.map.seed)) {
